@@ -380,6 +380,18 @@
     '未来のあなたになったつもりで、今のあなたへ手紙を書いてみましょう。', 'うまく書こうとしなくて大丈夫です。',
     '未来のあなたから、今のあなたへ。', 'その言葉を、自由に綴ってください。'];
   var LETTER_ARRIVED = '未来のあなたから、手紙が届いています。';
+  // 「答えから見る」の解説（仮・オーナー確認待ち。2026-10-31 オーナー指示で追加）
+  var ANSWER_VIEW = ['「答えから見る」とは、望んだ未来がすでにかなった場所に立って、そこから今を見ることです。',
+    '今の自分から未来を見ると、足りないものや、これからしなければならないことに目が向きやすくなります。',
+    '満たされた未来の自分から今を見ると、すでに在るもの、ここまで歩いてきた道、今のあなたの素晴らしさに気づきやすくなります。',
+    '未来のあなたは、今のあなたを責めたり、急かしたりしません。あたたかく見守り、伝えたいことがあるはずです。'];
+  // 書く前に心を整える瞑想。33秒は既存の仮の誘導を使う。感謝の瞑想は仮の誘導（正式原稿が決まるまで仮）
+  var GRATITUDE_MEDITATION = { seconds: 60, phases: [
+    { from: 0, to: 15, text: 'ゆっくり息をして、肩や顔の力をゆるめます。' },
+    { from: 15, to: 30, text: '今ここに在るものを一つ思い浮かべ、心の中で「ありがとう」と言います。' },
+    { from: 30, to: 45, text: '21日間を歩き終え、満たされて、心から「ありがとう」と感じているあなたを思い浮かべます。' },
+    { from: 45, to: 60, text: 'そのあなたの表情、まなざし、胸のあたたかさを、そのまま感じます。' }] };
+  var prepTimer = null;
   function lines(arr) { return arr.map(function (t) { return '<p>' + esc(t) + '</p>'; }).join(''); }
 
   function letterWriteHtml() {
@@ -393,17 +405,80 @@
       return '<details class="letter-box" open>' + head +
         '<p class="seal-state">✉ 封をしました。手紙は Day 07 に届きます。</p></details>';
     }
+    var ready = !!(l && l.text) || letterPrepDone;
     return '<details class="letter-box"' + (l && l.text ? ' open' : '') + '>' + head +
       '<div class="letter-intro"><h3>答えから、今を見てみましょう</h3>' + lines(LETTER_INTRO) + '</div>' +
+      '<details class="answer-view"><summary>「答えから見る」という考え方</summary>' + lines(ANSWER_VIEW) + '</details>' +
+      '<section class="letter-prep" aria-labelledby="prep-title"><h3 id="prep-title">書く前に、心を整えましょう</h3>' +
+      '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。どちらかを選んでください。</p>' +
+      '<p class="row"><button type="button" class="btn" id="prep-33">33秒の静かな時間</button>' +
+      '<button type="button" class="btn" id="prep-thanks">感謝の瞑想（約1分）</button></p>' +
+      '<div id="prep-player" hidden><div class="timer" aria-live="polite"><span id="prep-sec" class="t-sec"></span><span class="t-unit">秒</span></div>' +
+      '<p id="prep-guide" class="t-guide"></p>' +
+      '<p class="row"><button type="button" class="btn" id="prep-pause">一時停止</button><button type="button" class="btn" id="prep-resume" hidden>再開</button>' +
+      '<button type="button" class="btn" id="prep-stop">終える</button></p></div>' +
+      '<p id="prep-done" class="seal-state"' + (letterPrepDone ? '' : ' hidden') + '>心が整ったら、その満たされた感覚のまま、手紙を書いてみましょう。</p>' +
+      '<p><button type="button" class="btn small" id="prep-skip"' + (ready ? ' hidden' : '') + '>瞑想をせずに書く</button></p></section>' +
+      '<div id="letter-write"' + (ready ? '' : ' hidden') + '>' +
       '<div class="letter-guide">' + lines(LETTER_GUIDE) + '</div>' +
       '<label for="letter-text" class="sr-only">未来のあなたから、今のあなたへの手紙</label>' +
       '<textarea id="letter-text" rows="7" maxlength="4000">' + esc(l ? l.text : '') + '</textarea>' +
       '<p class="muted">書き終えたら、封を閉じてください。封を閉じた手紙は、Day 07 に届きます。書かなくてもかまいません。</p>' +
-      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>書き終えたら、封を閉じる</button></p></details>';
+      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>書き終えたら、封を閉じる</button></p></div></details>';
+  }
+  var letterPrepDone = false; // この画面で瞑想を終えたか（保存はしない）
+
+  function bindLetterPrep() {
+    var b33 = document.getElementById('prep-33');
+    if (!b33) return;
+    var player = document.getElementById('prep-player');
+    var sec = document.getElementById('prep-sec');
+    var guide = document.getElementById('prep-guide');
+    var pause = document.getElementById('prep-pause');
+    var resume = document.getElementById('prep-resume');
+    function reveal() {
+      letterPrepDone = true;
+      document.getElementById('prep-done').hidden = false;
+      document.getElementById('prep-skip').hidden = true;
+      document.getElementById('letter-write').hidden = false;
+    }
+    function play(m) {
+      if (prepTimer) prepTimer.dispose();
+      player.hidden = false; pause.hidden = false; resume.hidden = true;
+      prepTimer = new window.MichiruTimer(m.seconds, function (remain, ms) {
+        sec.textContent = remain;
+        var t = ms / 1000, txt = m.phases[m.phases.length - 1].text;
+        for (var i = 0; i < m.phases.length; i++) if (t < m.phases[i].to) { txt = m.phases[i].text; break; }
+        if (prepTimer && prepTimer.state === 'paused') guide.textContent = '一時停止中です。再開できます。'; else guide.textContent = txt;
+      }, function () {
+        guide.textContent = 'おつかれさまでした。';
+        pause.hidden = true; resume.hidden = true;
+        reveal();
+        document.getElementById('prep-done').setAttribute('tabindex', '-1');
+        document.getElementById('prep-done').focus();
+      });
+      sec.textContent = m.seconds;
+      prepTimer.start();
+    }
+    b33.addEventListener('click', function () { play(C.meditation); });
+    document.getElementById('prep-thanks').addEventListener('click', function () { play(GRATITUDE_MEDITATION); });
+    pause.addEventListener('click', function () { prepTimer.pause(); pause.hidden = true; resume.hidden = false; });
+    resume.addEventListener('click', function () { prepTimer.start(); pause.hidden = false; resume.hidden = true; });
+    document.getElementById('prep-stop').addEventListener('click', function () {
+      if (prepTimer) prepTimer.dispose();
+      player.hidden = true;
+      reveal();
+    });
+    document.getElementById('prep-skip').addEventListener('click', function () {
+      document.getElementById('letter-write').hidden = false;
+      document.getElementById('prep-skip').hidden = true;
+      document.getElementById('letter-text').focus();
+    });
   }
   function bindLetterWrite() {
     var t = document.getElementById('letter-text');
     if (!t) return;
+    bindLetterPrep();
     var seal = document.getElementById('letter-seal');
     t.addEventListener('input', function () { store.setFutureLetter(t.value); seal.disabled = !t.value.trim(); });
     seal.addEventListener('click', function () {
@@ -771,6 +846,8 @@
   // ---------- 振り分け ----------
   function render() {
     if (timer) { timer.dispose(); timer = null; }
+    if (prepTimer) { prepTimer.dispose(); prepTimer = null; }
+    letterPrepDone = false;
     store.flush();
     var h = location.hash.replace(/^#/, '') || '/';
     var parts = h.split('/').filter(Boolean);

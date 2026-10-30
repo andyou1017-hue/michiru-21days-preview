@@ -570,9 +570,16 @@ const INTRO_LINES = ['答えから、今を見てみましょう', '私たちは
 const GUIDE_LINES = ['少し目を閉じて、21日間を歩み終えた自分をイメージしてみましょう。', 'そのあなたは、今のあなたに何を伝えたいでしょうか。',
   '未来のあなたになったつもりで、今のあなたへ手紙を書いてみましょう。', 'うまく書こうとしなくて大丈夫です。', '未来のあなたから、今のあなたへ。', 'その言葉を、自由に綴ってください。'];
 
+// 手紙の欄を開いて、書く欄を出す（瞑想の確かめは別のテストで行う）
+async function openLetterWriter(page) {
+  if (!(await page.isVisible('.letter-intro'))) await page.click('.letter-box summary'); // 書きかけがあると最初から開いている
+  if (await page.isVisible('#prep-skip')) await page.click('#prep-skip');
+  await page.waitForSelector('#letter-text', { state: 'visible' });
+}
+
 async function writeAndSeal(page, text) {
   await page.goto(base + '#/day/1/5');
-  if (!(await page.isVisible('#letter-text'))) await page.click('.letter-box summary'); // 書きかけがあると最初から開いている
+  await openLetterWriter(page);
   await page.fill('#letter-text', text);
   await page.click('#letter-seal');
   await page.click('#confirm-ok');
@@ -585,7 +592,7 @@ test('P3 未来からの手紙：Day1 にオーナーの導入・誘導文で書
   await consent(page);
   await page.goto(base + '#/day/1/5');
   assert.ok(!(await page.isVisible('#letter-text')), '任意・折りたたみ');
-  await page.click('.letter-box summary');
+  await openLetterWriter(page);
   const box = await page.textContent('.letter-box');
   for (const l of INTRO_LINES.concat(GUIDE_LINES)) assert.ok(box.includes(l), '原文がない：' + l);
   assert.ok(!/21日後の私へ|未来の私へ|未来の自分へ/.test(box), '逆向き（今→未来）の文言が残っている');
@@ -626,7 +633,7 @@ test('P3 未来からの手紙：Day7 で初めて開封。取っておくこと
   await page.goto(base + '#/day/7/5');
   assert.strictEqual(await page.locator('#letter-read').count(), 0);
   await page.goto(base + '#/day/1/5');
-  await page.click('.letter-box summary');
+  await openLetterWriter(page);
   await page.fill('#letter-text', '書きかけ');
   await waitSaved(page);
   await page.goto(base + '#/day/7/5');
@@ -747,7 +754,7 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   const { context, page } = await newPage();
   await consent(page);
   await page.goto(base + '#/day/1/5');
-  await page.click('.letter-box summary');
+  await openLetterWriter(page);
   await page.fill('#letter-text', 'バックアップする未来からの手紙');
   await page.fill('#disc-text', 'バックアップする発見');
   await page.click('#disc-add');
@@ -850,5 +857,61 @@ test('復元：記録の入っていないファイルでは上書きしない�
   assert.match(msg, /いまの記録：日々の記録 1日分・私の発見 0件・手紙 なし/);
   await page.click('#confirm-cancel');
   assert.strictEqual((await stored(page)).entries[6].answers[0], '消えてはいけない記録');
+  await context.close();
+});
+
+test('P3 未来からの手紙：書く前に33秒または感謝の瞑想で心を整える。「答えから見る」の解説がある', { skip }, async () => {
+  const { context, page } = await newPage();
+  await page.clock.install();
+  await consent(page);
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  // 書く欄は、心を整えるまで（または「瞑想をせずに書く」まで）出さない
+  assert.ok(await page.isVisible('#prep-title'));
+  assert.ok(!(await page.isVisible('#letter-text')));
+  // 解説：「答えから見る」
+  await page.click('.answer-view summary');
+  assert.match(await page.textContent('.answer-view'), /望んだ未来がすでにかなった場所に立って、そこから今を見る/);
+  // 感謝の瞑想（約1分）：途中は書く欄が出ず、60秒で終わると出る
+  await page.click('#prep-thanks');
+  assert.match(await page.textContent('#prep-guide'), /息をして/);
+  await page.clock.runFor(31000);
+  assert.match(await page.textContent('#prep-guide'), /満たされて、心から「ありがとう」と感じているあなた/);
+  assert.ok(!(await page.isVisible('#letter-text')));
+  await page.click('#prep-pause');
+  await page.clock.runFor(20000);
+  assert.match(await page.textContent('#prep-guide'), /一時停止中/);
+  await page.click('#prep-resume');
+  await page.clock.runFor(30000);
+  assert.ok(await page.isVisible('#letter-text'));
+  assert.match(await page.textContent('#prep-done'), /満たされた感覚のまま/);
+  // 33秒の静かな時間でも整えられる（別の日に開き直す）
+  await page.goto(base + '#/');
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  assert.ok(!(await page.isVisible('#letter-text')), '画面を移ると、もう一度整えるところから');
+  await page.click('#prep-33');
+  await page.clock.runFor(32000);
+  assert.ok(!(await page.isVisible('#letter-text')));
+  await page.clock.runFor(1500);
+  assert.ok(await page.isVisible('#letter-text'));
+  // 途中で「終える」でも書ける。瞑想をせずに書くこともできる（強制しない）
+  await page.goto(base + '#/');
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  await page.click('#prep-thanks');
+  await page.click('#prep-stop');
+  assert.ok(await page.isVisible('#letter-text'));
+  await page.goto(base + '#/');
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  await page.click('#prep-skip');
+  assert.ok(await page.isVisible('#letter-text'));
+  // 書きかけがあれば、次に開いたときはすぐ書ける
+  await page.fill('#letter-text', '書きかけ');
+  await waitSaved(page);
+  await page.goto(base + '#/');
+  await page.goto(base + '#/day/1/5');
+  assert.ok(await page.isVisible('#letter-text'));
   await context.close();
 });

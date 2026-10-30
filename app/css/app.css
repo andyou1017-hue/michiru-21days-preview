@@ -185,3 +185,8 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .letter-intro p, .letter-guide p { margin: 0 0 .4em; }
 .letter-guide { margin: 12px 0; padding: 10px 12px; border-left: 3px solid var(--gold); background: #fffdf7; }
 .seal-state { font-weight: 600; color: var(--green); margin: 4px 0; }
+.answer-view { margin: 8px 0 12px; background: #fffdf7; border-radius: 8px; padding: 4px 12px; font-family: var(--serif); }
+.answer-view summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; font-family: var(--sans); }
+.answer-view p { margin: 0 0 .5em; line-height: 1.9; }
+.letter-prep { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--white); text-align: center; }
+.letter-prep h3 { margin: 0 0 4px; font-size: 1rem; }
