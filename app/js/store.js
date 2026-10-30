@@ -17,7 +17,8 @@
       progress: { startedAt: null, lastOpenDay: 1 },
       entries: {},
       discoveries: [],      // 私の発見：本人が選んで残した一言 [{ id, day, text, created_at }]
-      // 未来からの手紙：未来の自分になったつもりで、今の自分に宛てて書く手紙 { text, written_at, updated_at }
+      // 未来からの手紙：21日間を歩き終えた未来の自分になったつもりで、今の自分に宛てて書く手紙
+      // { text, written_at, updated_at, sealed_at（Day1で封を閉じた日時）, opened_at（初めて開封した日時） }
       futureLetter: null,
       futureReplies: {},    // 手紙を受け取った、今の自分からのひとこと { 7: { text, updated_at }, 14: …, 21: … }
       futureSkipped: {},    // 「今は読まない」を選んだ日 { 7: true }
@@ -103,6 +104,11 @@
       for (var k = 1; k <= 21; k++) if (typeof raw.drafts[k] === 'string' && raw.drafts[k]) s.drafts[k] = str(raw.drafts[k], DISCOVERY_MAX);
     }
     s.futureLetter = letterOf(raw.futureLetter);
+    if (s.futureLetter) {
+      // 封（sealed_at）・開封（opened_at）。封の無い手紙は、まだ書きかけとして扱う
+      s.futureLetter.sealed_at = isoOrNull(raw.futureLetter.sealed_at);
+      s.futureLetter.opened_at = s.futureLetter.sealed_at ? isoOrNull(raw.futureLetter.opened_at) : null;
+    }
     s.letter = letterOf(raw.letter);
     LETTER_DAYS.forEach(function (d) {
       var r = raw.futureReplies && raw.futureReplies[d];
@@ -303,8 +309,9 @@
 
   // ---- 未来からの手紙 ----
   Store.prototype.setFutureLetter = function (text) {
+    if (this.isSealed()) return; // 封を閉じたあとは書き換えない
     var t = now();
-    var l = this.state.futureLetter || { text: '', written_at: t, updated_at: t };
+    var l = this.state.futureLetter || { text: '', written_at: t, updated_at: t, sealed_at: null, opened_at: null };
     l.text = str(text, LETTER_MAX);
     l.updated_at = t;
     if (!l.written_at) l.written_at = t;
@@ -312,6 +319,23 @@
     this.scheduleSave();
   };
   Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && this.state.futureLetter.text.trim()); };
+  Store.prototype.isSealed = function () { return !!(this.hasFutureLetter() && this.state.futureLetter.sealed_at); };
+  Store.prototype.isOpened = function () { return !!(this.isSealed() && this.state.futureLetter.opened_at); };
+  // Day1：書き終えたら封を閉じる
+  Store.prototype.sealFutureLetter = function () {
+    if (!this.hasFutureLetter() || this.isSealed()) return false;
+    this.state.futureLetter.sealed_at = now();
+    this.flush();
+    return true;
+  };
+  // Day7・14・21：初めて開けた日時を残す（一度開けたら、いつでも読み返せる）
+  Store.prototype.openFutureLetter = function () {
+    if (!this.isSealed()) return false;
+    if (!this.state.futureLetter.opened_at) this.state.futureLetter.opened_at = now();
+    this.state.futureSkipped = {};
+    this.flush();
+    return true;
+  };
   Store.prototype.setFutureReply = function (day, text) {
     this.state.futureReplies[day] = { text: str(text, LETTER_MAX), updated_at: now() };
     this.scheduleSave();
