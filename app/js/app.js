@@ -126,9 +126,17 @@
     view.innerHTML =
       '<section class="home">' +
       '<h1>在るを生きる21日間</h1>' +
+      '<section class="daily-door" aria-labelledby="daily-door-title">' +
+      '<p class="eyebrow">DAY ' + pad(last) + ' / 21</p>' +
+      '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
+      '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
+      '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(last).title) + '</p>' +
+      '<a class="btn primary" href="#/day/' + last + '/1">今日の扉をひらく</a>' +
+      '<p class="muted">どの日からでも、あなたのペースで。</p>' +
+      '</section>' +
       '<p class="progress-text">完了 <strong>' + done.length + '</strong> / 21日</p>' +
       '<div class="bar" role="progressbar" aria-label="完了した日数" aria-valuemin="0" aria-valuemax="21" aria-valuenow="' + done.length + '"><span id="bar-fill"></span></div>' +
-      '<p><a class="btn primary" href="#/day/' + last + '/1">前回の続き：Day ' + pad(last) + '「' + esc(dayOf(last).title) + '」</a></p>' +
+      '<p><a href="#/day/' + last + '/1">前回の続きに戻る：Day ' + pad(last) + '</a></p>' +
       '<p class="muted">どの日からでも開けます。とばした日にも、あとから戻れます。</p>' +
       '<ol class="day-list">' + cards + '</ol>' +
       (done.length === 21 ? '<p><a class="btn" href="#/complete">21日間のおわりに</a></p>' : '') +
