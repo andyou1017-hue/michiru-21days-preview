@@ -1,0 +1,53 @@
+name: テストとプレビューへの反映
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 教材ファイルが最新か確かめる
+        run: |
+          node tools/build-content.js
+          git diff --exit-code app/js/content.js
+      - name: ブラウザ（Playwright）を用意
+        run: |
+          npm i --no-save playwright@1.64.0
+          npx playwright install --with-deps chromium
+      - name: テスト
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 公開するファイルをまとめる（app/ だけ）
+        run: |
+          mkdir _site
+          cp -r app/. _site/
+          touch _site/.nojekyll
+          printf 'User-agent: *\nDisallow: /\n' > _site/robots.txt
+      - name: gh-pages ブランチを更新
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "プレビューを更新（${GITHUB_SHA::7}）"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

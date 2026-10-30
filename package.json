@@ -1,0 +1,12 @@
+{
+  "name": "michiru-21days-preview",
+  "version": "0.1.0",
+  "private": true,
+  "description": "満ちる眼｜在るを生きる21日間 試作版（プレビュー・最終承認前）",
+  "scripts": {
+    "build:content": "node tools/build-content.js",
+    "start": "node tools/static-server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
