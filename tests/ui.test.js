@@ -85,10 +85,10 @@ test('T01・T02・T22 21日分を開け、どの日へも移動・戻れる。�
   await page.waitForFunction(() => location.hash === '#/day/2/1');
   // 一覧から任意の日（Day 15）へ戻る
   await page.goto(base + '#/');
-  await page.click('a[href="#/day/15/1"]');
+  await page.click('.day-card[href="#/day/15/1"]');
   await page.waitForFunction(() => location.hash === '#/day/15/1');
   await page.goto(base + '#/');
-  const card = page.locator('a[href="#/day/1/1"]');
+  const card = page.locator('.day-card[href="#/day/1/1"]');
   assert.match(await card.textContent(), /✓ 完了/); // 色だけに頼らない
   assert.deepStrictEqual(errors, []);
   await context.close();
