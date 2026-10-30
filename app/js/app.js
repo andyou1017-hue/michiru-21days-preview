@@ -207,8 +207,9 @@
       clear.hidden = v === null;
     }
     input.addEventListener('input', function () { set(parseInt(input.value, 10)); });
-    // 初期位置（5）のまま記録したい人のために、触れただけでも記録する
-    input.addEventListener('pointerdown', function () { if (box.getAttribute('data-recorded') === 'false') set(parseInt(input.value, 10)); });
+    // 初期位置（5）のまま記録したい人のために、軽く押しただけでも記録する。
+    // pointerdown だと、スマホで画面を送るときに指が触れただけで記録されてしまうため、click（指を離したとき）にする
+    input.addEventListener('click', function () { if (box.getAttribute('data-recorded') === 'false') set(parseInt(input.value, 10)); });
     input.addEventListener('keydown', function (ev) {
       if ((ev.key === 'Enter' || ev.key === ' ') && box.getAttribute('data-recorded') === 'false') { ev.preventDefault(); set(parseInt(input.value, 10)); }
     });
@@ -315,7 +316,7 @@
     var saved = store.discoveriesOf(day);
     return '<div class="discovery-form">' +
       '<label for="disc-text">' + esc(label) + '</label>' +
-      '<textarea id="disc-text" rows="2" maxlength="' + window.MichiruStore.DISCOVERY_MAX + '"></textarea>' +
+      '<textarea id="disc-text" rows="2" maxlength="' + window.MichiruStore.DISCOVERY_MAX + '">' + esc(store.state.drafts[day] || '') + '</textarea>' +
       '<p class="row"><button type="button" class="btn" id="disc-add">私の発見に残す</button>' +
       '<span id="disc-msg" role="status" class="muted"></span></p>' +
       (saved.length ? '<ul class="disc-mini" aria-label="この日に残した言葉">' + saved.map(function (x) { return '<li>' + nl2br(x.text) + '</li>'; }).join('') + '</ul>' : '') +
@@ -325,10 +326,12 @@
     var t = document.getElementById('disc-text');
     var b = document.getElementById('disc-add');
     var msg = document.getElementById('disc-msg');
+    t.addEventListener('input', function () { store.setDraft(day, t.value); });
     b.addEventListener('click', function () {
       if (!t.value.trim()) { msg.textContent = '残したい言葉を書いてから押してください。'; t.focus(); return; }
       b.disabled = true; // 二重押しを防ぐ
       store.addDiscovery(day, t.value);
+      store.setDraft(day, '');
       t.value = '';
       msg.innerHTML = '残しました。<a href="#/discoveries">私の発見を見る</a>';
       var list = b.closest('.discovery-form').querySelector('.disc-mini');
@@ -564,6 +567,7 @@
       b.addEventListener('click', function () {
         var t = document.getElementById('disc-text');
         t.value = picks[Number(b.getAttribute('data-pick'))].slice(0, window.MichiruStore.DISCOVERY_MAX);
+        store.setDraft(n, t.value);
         t.focus();
       });
     });
@@ -657,8 +661,18 @@
       r.onload = function () {
         try {
           var raw = JSON.parse(r.result);
-          window.MichiruStore.normalizeState(raw);
-          askConfirm('いまの記録を、ファイルの内容で置き換えます。', '置き換える').then(function (ok) {
+          var incoming = window.MichiruStore.summarize(window.MichiruStore.normalizeState(raw));
+          if (!incoming.days && !incoming.discoveries && !incoming.letter) {
+            msg.textContent = 'このファイルには記録が入っていないため、読み込みませんでした（いまの記録はそのままです）。';
+            ev.target.value = '';
+            return;
+          }
+          var cur = store.summary();
+          function line(x) { return '日々の記録 ' + x.days + '日分・私の発見 ' + x.discoveries + '件・手紙 ' + (x.letter ? 'あり' : 'なし'); }
+          var at = typeof raw.exportedAt === 'string' && !isNaN(Date.parse(raw.exportedAt)) ? new Date(raw.exportedAt) : null;
+          askConfirm('いまの記録を、ファイルの内容で置き換えます。\n' +
+            'ファイル' + (at ? '（' + at.getFullYear() + '/' + (at.getMonth() + 1) + '/' + at.getDate() + ' に保存）' : '') + '：' + line(incoming) + '\n' +
+            'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
             store.importBackup(raw);
             applyFont();

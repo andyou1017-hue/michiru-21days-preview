@@ -691,3 +691,66 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
 });
+
+// ---------- 2026-10-31 の修正 ----------
+test('気分：画面を送るときに指が触れただけでは記録しない。軽く押せば初期位置のまま記録できる', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/2/1');
+  // 押し始めただけ（スクロールの始まり）では記録しない
+  await page.dispatchEvent('#mood-am', 'pointerdown');
+  await page.waitForTimeout(500);
+  assert.strictEqual(await page.textContent('#mood-am-out'), '未記録');
+  // 押して離す（タップ）と、初期位置のまま記録する
+  await page.dispatchEvent('#mood-am', 'click');
+  assert.strictEqual(await page.textContent('#mood-am-out'), '5');
+  await waitSaved(page);
+  assert.strictEqual((await stored(page)).entries[2].mood_am, 5);
+  await context.close();
+});
+
+test('私の発見：残す前の書きかけは、画面を移っても消えない。残すと消える', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/4/5');
+  await page.fill('#disc-text', '書きかけの発見');
+  await waitSaved(page);
+  await page.goto(base + '#/');
+  await page.reload();
+  await page.goto(base + '#/day/4/5');
+  assert.strictEqual(await page.inputValue('#disc-text'), '書きかけの発見');
+  await page.click('#disc-add');
+  await waitSaved(page);
+  await page.goto(base + '#/');
+  await page.goto(base + '#/day/4/5');
+  assert.strictEqual(await page.inputValue('#disc-text'), '');
+  const s = await stored(page);
+  assert.deepStrictEqual(s.drafts, {});
+  assert.strictEqual(s.discoveries[0].text, '書きかけの発見');
+  await context.close();
+});
+
+test('復元：記録の入っていないファイルでは上書きしない。確認でファイルといまの記録の件数を見せる', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/6/3');
+  await page.fill('#ans-0', '消えてはいけない記録');
+  await waitSaved(page);
+  await page.goto(base + '#/settings');
+  const empty = { app: 'michiru-21days', schema: 1, consentedAt: null, settings: { fontSize: 'm' }, progress: { startedAt: null, lastOpenDay: 1 }, entries: {} };
+  await page.setInputFiles('#import-file', { name: 'empty.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(empty)) });
+  await page.waitForFunction(() => /記録が入っていないため/.test(document.getElementById('import-msg').textContent));
+  assert.strictEqual(await page.locator('[role="alertdialog"]').count(), 0);
+  assert.strictEqual((await stored(page)).entries[6].answers[0], '消えてはいけない記録');
+  // 中身のあるファイル：件数と保存日を確認で見せる。「やめる」なら何も変わらない
+  const full = Object.assign({}, empty, { exportedAt: '2026-10-29T09:00:00.000Z', entries: { 1: { answers: ['a'] }, 2: { mood_am: 3 } }, discoveries: [{ id: 'x', day: 1, text: 'b', created_at: '2026-10-29T09:00:00.000Z' }] });
+  await page.setInputFiles('#import-file', { name: 'full.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(full)) });
+  await page.waitForSelector('[role="alertdialog"]');
+  const msg = await page.textContent('#confirm-msg');
+  assert.match(msg, /2026\/10\/29 に保存/);
+  assert.match(msg, /ファイル.*日々の記録 2日分・私の発見 1件・手紙 なし/);
+  assert.match(msg, /いまの記録：日々の記録 1日分・私の発見 0件・手紙 なし/);
+  await page.click('#confirm-cancel');
+  assert.strictEqual((await stored(page)).entries[6].answers[0], '消えてはいけない記録');
+  await context.close();
+});

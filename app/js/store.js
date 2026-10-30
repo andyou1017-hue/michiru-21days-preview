@@ -24,7 +24,8 @@
       // 以前の試作（「21日後の私へ」＝今の自分から未来の自分へ）で書かれた手紙。宛先が逆のため
       // 未来からの手紙としては扱わず、消さずに残して読めるだけにする
       letter: null,
-      letterReplies: {}
+      letterReplies: {},
+      drafts: {}            // まだ「私の発見」に残していない書きかけ { 5: '…' }（画面を移っても消えないように）
     };
   }
 
@@ -97,6 +98,9 @@
     }
     function letterOf(x) {
       return x && typeof x.text === 'string' ? { text: str(x.text, LETTER_MAX), written_at: isoOrNull(x.written_at), updated_at: isoOrNull(x.updated_at) } : null;
+    }
+    if (raw.drafts && typeof raw.drafts === 'object') {
+      for (var k = 1; k <= 21; k++) if (typeof raw.drafts[k] === 'string' && raw.drafts[k]) s.drafts[k] = str(raw.drafts[k], DISCOVERY_MAX);
     }
     s.futureLetter = letterOf(raw.futureLetter);
     s.letter = letterOf(raw.letter);
@@ -285,6 +289,10 @@
     this.scheduleSave();
     return item;
   };
+  Store.prototype.setDraft = function (day, text) {
+    if (text) this.state.drafts[day] = str(text, DISCOVERY_MAX); else delete this.state.drafts[day];
+    this.scheduleSave();
+  };
   Store.prototype.deleteDiscovery = function (id) {
     this.state.discoveries = this.state.discoveries.filter(function (x) { return x.id !== id; });
     this.flush();
@@ -328,6 +336,18 @@
     return copy;
   };
 
+  // バックアップの中身の件数（復元の前に確認で見せる）
+  function summarize(st) {
+    var days = 0;
+    for (var d = 1; d <= 21; d++) {
+      var e = st.entries[d];
+      if (e && (e.completed_at || e.mood_am !== null || e.mood_pm !== null || e.reflection || e.action_text || e.action_status ||
+        e.answers.some(function (a) { return a && a.length; }))) days++;
+    }
+    return { days: days, discoveries: st.discoveries.length, letter: !!(st.futureLetter && st.futureLetter.text.trim()) || !!(st.letter && st.letter.text.trim()) };
+  }
+  Store.prototype.summary = function () { return summarize(this.state); };
+
   Store.prototype.importBackup = function (raw) {
     var s = normalizeState(raw);
     this.state = s;
@@ -347,5 +367,5 @@
     this.pushRemote();
   };
 
-  window.MichiruStore = { Store: Store, normalizeState: normalizeState, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };
+  window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };
 })();
