@@ -111,10 +111,20 @@
   }
 
   // ---------- 画面：21日の一覧（S02） ----------
+  // 今日の扉で開く日：前回開いた日。完了していれば、その次の未完了の日（なければ最初の未完了の日）
+  function doorDay() {
+    var last = store.state.progress.lastOpenDay || 1;
+    function open(d) { return !(store.state.entries[d] && store.state.entries[d].completed_at); }
+    if (open(last)) return last;
+    for (var d = last + 1; d <= 21; d++) if (open(d)) return d;
+    for (d = 1; d < last; d++) if (open(d)) return d;
+    return null;
+  }
+
   function renderHome() {
     setTitle('');
     var done = store.completedDays();
-    var last = store.state.progress.lastOpenDay || 1;
+    var door = doorDay();
     var cards = C.days.map(function (d) {
       var st = store.state.entries[d.day] && store.state.entries[d.day].completed_at ? 'done' : (store.hasEntry(d.day) ? 'started' : 'todo');
       var label = st === 'done' ? '✓ 完了' : (st === 'started' ? '✎ 記入あり' : '未着手');
@@ -123,23 +133,30 @@
         '<span class="day-title">' + esc(d.title) + '</span>' +
         '<span class="day-state">' + label + '</span></a></li>';
     }).join('');
+    // 今日の扉（ChatGPT の試作を統合）。「前回の続き」の入口を兼ねる
+    var doorHtml = door
+      ? '<section class="daily-door" aria-labelledby="daily-door-title">' +
+        '<p class="eyebrow">DAY ' + pad(door) + ' / 21</p>' +
+        '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
+        '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
+        '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(door).title) + '</p>' +
+        '<a class="btn primary" id="door-open" href="#/day/' + door + '/1" aria-label="今日の扉をひらく（Day ' + pad(door) + '「' + esc(dayOf(door).title) + '」）">今日の扉をひらく</a>' +
+        '<p class="muted">どの日からでも、あなたのペースで。</p>' +
+        '</section>'
+      : '<section class="daily-door" aria-labelledby="daily-door-title">' +
+        '<p class="eyebrow">DAY 21 / 21</p>' +
+        '<h2 id="daily-door-title">21日間を、歩き終えました。</h2>' +
+        '<a class="btn primary" id="door-open" href="#/complete">21日間のおわりに</a>' +
+        '<p class="muted">どの日も、いつでも開き直せます。</p>' +
+        '</section>';
     view.innerHTML =
       '<section class="home">' +
       '<h1>在るを生きる21日間</h1>' +
-      '<section class="daily-door" aria-labelledby="daily-door-title">' +
-      '<p class="eyebrow">DAY ' + pad(last) + ' / 21</p>' +
-      '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
-      '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
-      '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(last).title) + '</p>' +
-      '<a class="btn primary" href="#/day/' + last + '/1">今日の扉をひらく</a>' +
-      '<p class="muted">どの日からでも、あなたのペースで。</p>' +
-      '</section>' +
+      doorHtml +
       '<p class="progress-text">完了 <strong>' + done.length + '</strong> / 21日</p>' +
       '<div class="bar" role="progressbar" aria-label="完了した日数" aria-valuemin="0" aria-valuemax="21" aria-valuenow="' + done.length + '"><span id="bar-fill"></span></div>' +
-      '<p><a href="#/day/' + last + '/1">前回の続きに戻る：Day ' + pad(last) + '</a></p>' +
       '<p class="muted">どの日からでも開けます。とばした日にも、あとから戻れます。</p>' +
       '<ol class="day-list">' + cards + '</ol>' +
-      (done.length === 21 ? '<p><a class="btn" href="#/complete">21日間のおわりに</a></p>' : '') +
       '</section>';
     // style属性はセキュリティ設定（CSP）で使えないため、あとから幅を設定する
     document.getElementById('bar-fill').style.width = (done.length / 21 * 100) + '%';
@@ -242,9 +259,11 @@
         '</fieldset><p class="muted">できない日があっても大丈夫です。明日に持ち越しても、見送ってもかまいません。</p>';
     } else {
       var completed = !!e.completed_at;
-      body = moodHtml('mood-pm', '夜の気分', e.mood_pm) +
+      body = letterReadHtml(n) + moodHtml('mood-pm', '夜の気分', e.mood_pm) +
         '<div class="field"><label for="refl">' + esc(d.reflection) + '<span class="muted">（発見を一言でも）</span></label>' +
         '<textarea id="refl" rows="4" maxlength="4000">' + esc(e.reflection) + '</textarea></div>' +
+        discoveryFormHtml(n, '今日の発見から、残しておきたい一言（任意）') +
+        (n === 1 ? letterWriteHtml() : '') +
         '<div class="complete-box" data-done="' + completed + '">' +
         (completed
           ? '<p class="done-mark">✓ この日は完了しています</p><p class="muted">あとから書き足すこともできます。</p>' +
@@ -275,6 +294,9 @@
     if (step === 5) {
       bindMood(n, 'mood-pm', 'mood_pm');
       bindText(n, document.getElementById('refl'), function (v) { return { reflection: v }; });
+      bindDiscoveryForm(n);
+      if (n === 1) bindLetterWrite();
+      bindLetterRead(n);
       var c = document.getElementById('complete');
       if (c) c.addEventListener('click', function () {
         c.disabled = true; // 二重押しを防ぐ
@@ -284,6 +306,141 @@
       var u = document.getElementById('undo');
       if (u) u.addEventListener('click', function () { u.disabled = true; store.toggleComplete(n, false); render(); });
     }
+    focusHeading();
+  }
+
+  // ---------- 私の発見（P2） ----------
+  // 本人が選んだ一言だけを残す。数・連続日数・点数は出さない。
+  function discoveryFormHtml(day, label) {
+    var saved = store.discoveriesOf(day);
+    return '<div class="discovery-form">' +
+      '<label for="disc-text">' + esc(label) + '</label>' +
+      '<textarea id="disc-text" rows="2" maxlength="' + window.MichiruStore.DISCOVERY_MAX + '"></textarea>' +
+      '<p class="row"><button type="button" class="btn" id="disc-add">私の発見に残す</button>' +
+      '<span id="disc-msg" role="status" class="muted"></span></p>' +
+      (saved.length ? '<ul class="disc-mini" aria-label="この日に残した言葉">' + saved.map(function (x) { return '<li>' + nl2br(x.text) + '</li>'; }).join('') + '</ul>' : '') +
+      '</div>';
+  }
+  function bindDiscoveryForm(day) {
+    var t = document.getElementById('disc-text');
+    var b = document.getElementById('disc-add');
+    var msg = document.getElementById('disc-msg');
+    b.addEventListener('click', function () {
+      if (!t.value.trim()) { msg.textContent = '残したい言葉を書いてから押してください。'; t.focus(); return; }
+      b.disabled = true; // 二重押しを防ぐ
+      store.addDiscovery(day, t.value);
+      t.value = '';
+      msg.innerHTML = '残しました。<a href="#/discoveries">私の発見を見る</a>';
+      var list = b.closest('.discovery-form').querySelector('.disc-mini');
+      var items = store.discoveriesOf(day);
+      if (!list) { list = document.createElement('ul'); list.className = 'disc-mini'; list.setAttribute('aria-label', 'この日に残した言葉'); b.closest('.discovery-form').appendChild(list); }
+      list.innerHTML = items.map(function (x) { return '<li>' + nl2br(x.text) + '</li>'; }).join('');
+      setTimeout(function () { b.disabled = false; }, 300);
+    });
+  }
+
+  function renderDiscoveries() {
+    setTitle('私の発見');
+    var items = store.state.discoveries.slice().reverse();
+    view.innerHTML = '<section class="discoveries"><h1>私の発見</h1>' +
+      '<p>自分で選んだ言葉だけが、ここに残ります。</p>' +
+      (items.length ? '<ul class="disc-list">' + items.map(function (x) {
+        var d = new Date(x.created_at);
+        return '<li><blockquote>' + nl2br(x.text) + '</blockquote>' +
+          '<p class="disc-meta">' + (x.day ? '<a href="#/records/' + x.day + '">Day ' + pad(x.day) + '「' + esc(dayOf(x.day).title) + '」</a>　' : '') +
+          d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '</p>' +
+          '<button type="button" class="btn small danger" data-del="' + esc(x.id) + '">この言葉を消す</button></li>';
+      }).join('') + '</ul>'
+        : '<p class="muted">まだありません。各日の「夜のふりかえり」や、記録の画面から、残したい一言を選べます。</p>') +
+      (store.hasLetter() ? '<h2>21日後の私への手紙</h2><p><a href="#/letter">Day 01 に書いた手紙を開く</a></p>' : '') +
+      '</section>';
+    Array.prototype.forEach.call(view.querySelectorAll('[data-del]'), function (b) {
+      b.addEventListener('click', function () {
+        askConfirm('この言葉を「私の発見」から消します。元に戻せません。', '消す').then(function (ok) {
+          if (ok) { store.deleteDiscovery(b.getAttribute('data-del')); renderDiscoveries(); }
+        });
+      });
+    });
+    focusHeading();
+  }
+
+  // ---------- 過去の自分への手紙（P3） ----------
+  function letterWriteHtml() {
+    var l = store.state.letter;
+    return '<details class="letter-box"' + (l && l.text ? ' open' : '') + '><summary>21日後の私へ　手紙を書く（任意）</summary>' +
+      '<p class="muted">書いた手紙は、Day 07・14・21 に、読みたいときだけ開けます。書かなくてもかまいません。</p>' +
+      '<label for="letter-text" class="sr-only">21日後の私へ</label>' +
+      '<textarea id="letter-text" rows="5" maxlength="4000">' + esc(l ? l.text : '') + '</textarea></details>';
+  }
+  function bindLetterWrite() {
+    var t = document.getElementById('letter-text');
+    t.addEventListener('input', function () { store.setLetter(t.value); });
+  }
+
+  // Day 7・14・21：本人が「読む」を選んだときだけ表示する
+  function letterReadHtml(day) {
+    if (window.MichiruStore.LETTER_DAYS.indexOf(day) < 0 || !store.hasLetter()) return '';
+    var skipped = !!store.state.letterSkipped[day];
+    return '<section class="letter-read" aria-labelledby="letter-read-title" id="letter-read">' +
+      '<h2 id="letter-read-title">Day 01 のあなたからの手紙があります</h2>' +
+      (skipped ? '<p class="muted">今は読まないことにしました。読みたくなったら、いつでも開けます。</p>' : '<p class="muted">読むかどうかは、あなたが選べます。</p>') +
+      '<p class="row"><button type="button" class="btn" id="letter-open">手紙を読む</button>' +
+      (skipped ? '' : '<button type="button" class="btn" id="letter-skip">今は読まない</button>') + '</p>' +
+      '<div id="letter-body" hidden></div></section>';
+  }
+  function letterBodyHtml(day) {
+    var l = store.state.letter;
+    var r = store.state.letterReplies[day];
+    var wd = l.written_at ? new Date(l.written_at) : null;
+    return '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
+      (wd ? '<p class="disc-meta">' + wd.getFullYear() + '/' + (wd.getMonth() + 1) + '/' + wd.getDate() + ' に書いた手紙</p>' : '') +
+      '<div class="field"><label for="letter-reply">今の私から、ひとこと（任意）</label>' +
+      '<textarea id="letter-reply" rows="3" maxlength="4000">' + esc(r ? r.text : '') + '</textarea></div>' +
+      '<p><button type="button" class="btn small" id="letter-close">手紙を閉じる</button></p>';
+  }
+  function bindLetterRead(day) {
+    var open = document.getElementById('letter-open');
+    if (!open) return;
+    var body = document.getElementById('letter-body');
+    var skip = document.getElementById('letter-skip');
+    open.addEventListener('click', function () {
+      store.setLetterSkipped(day, false);
+      body.innerHTML = letterBodyHtml(day);
+      body.hidden = false;
+      open.hidden = true;
+      if (skip) skip.hidden = true;
+      var reply = document.getElementById('letter-reply');
+      reply.addEventListener('input', function () { store.setLetterReply(day, reply.value); });
+      document.getElementById('letter-close').addEventListener('click', function () {
+        body.hidden = true; body.innerHTML = ''; open.hidden = false; open.focus();
+      });
+      body.querySelector('.letter-quote').setAttribute('tabindex', '-1');
+      body.querySelector('.letter-quote').focus();
+    });
+    if (skip) skip.addEventListener('click', function () {
+      store.setLetterSkipped(day, true);
+      var sec = document.getElementById('letter-read');
+      sec.outerHTML = letterReadHtml(day);
+      bindLetterRead(day);
+      document.getElementById('letter-open').focus();
+    });
+  }
+
+  function renderLetter() {
+    setTitle('21日後の私への手紙');
+    if (!store.hasLetter()) {
+      view.innerHTML = '<section class="letter-page"><h1>21日後の私への手紙</h1><p class="muted">手紙はまだありません。Day 01 の「夜のふりかえり」で、書きたいときに書けます。</p>' +
+        '<p><a href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p></section>';
+      return focusHeading();
+    }
+    var l = store.state.letter;
+    var replies = window.MichiruStore.LETTER_DAYS.filter(function (d) { return store.state.letterReplies[d] && store.state.letterReplies[d].text; });
+    view.innerHTML = '<section class="letter-page"><h1>21日後の私への手紙</h1>' +
+      '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
+      (replies.length ? '<h2>今の私からのひとこと</h2><dl class="record">' + replies.map(function (d) {
+        return '<dt>Day ' + pad(d) + '</dt><dd>' + nl2br(store.state.letterReplies[d].text) + '</dd>';
+      }).join('') + '</dl>' : '') +
+      '<p class="row"><a class="btn" href="#/day/1/5">手紙を書き直す（Day 01）</a><a class="btn" href="#/discoveries">← 私の発見</a></p></section>';
     focusHeading();
   }
 
@@ -358,7 +515,8 @@
     for (var n = 1; n <= 21; n++) if (store.hasEntry(n)) days.push(n);
     view.innerHTML = '<section class="records"><h1>これまでの記録</h1>' +
       '<p class="muted">記録はあなただけが見るためのものです。</p>' +
-      '<p><a class="btn" href="#/compare">Day 05 と Day 20 を並べて見る</a></p>' +
+      '<p class="row"><a class="btn" href="#/compare">Day 05 と Day 20 を並べて見る</a><a class="btn" href="#/discoveries">私の発見</a>' +
+      (store.hasLetter() ? '<a class="btn" href="#/letter">21日後の私への手紙</a>' : '') + '</p>' +
       (days.length ? '<ul class="record-list">' + days.map(function (n) {
         return '<li><a href="#/records/' + n + '">Day ' + pad(n) + '「' + esc(dayOf(n).title) + '」' + (store.entry(n).completed_at ? ' ✓ 完了' : '') + '</a></li>';
       }).join('') + '</ul>' : '<p>まだ記録はありません。</p>') +
@@ -369,12 +527,27 @@
     var d = dayOf(n);
     if (!d) return go('#/records');
     setTitle('Day ' + pad(n) + 'の記録');
+    var e = store.entry(n);
+    var picks = d.prompts.map(function (p, i) { return e.answers[i] && e.answers[i].trim() ? e.answers[i] : null; }).concat([e.reflection && e.reflection.trim() ? e.reflection : null]);
+    var pickBtns = picks.map(function (t, i) {
+      return t ? '<button type="button" class="btn small" data-pick="' + i + '">' + (i < d.prompts.length ? '問い' + (i + 1) + 'の答え' : 'ふりかえり') + 'を写す</button>' : '';
+    }).join('');
     view.innerHTML = '<section class="records"><p class="eyebrow">Day ' + pad(n) + '</p><h1>' + esc(d.title) + 'の記録</h1>' + entrySummary(n) +
+      (pickBtns ? '<p class="muted">書いた言葉を写して、残したい部分だけに整えてから「私の発見」に残せます。</p><p class="row">' + pickBtns + '</p>' : '') +
+      discoveryFormHtml(n, 'この日の言葉から、残しておきたい一言') +
       '<p class="row"><a class="btn primary" href="#/day/' + n + '/3">書き足す・直す</a>' +
       '<button type="button" class="btn danger" id="del-day">この日の記録を削除</button></p>' +
       '<p><a href="#/records">← 記録の一覧</a></p></section>';
+    bindDiscoveryForm(n);
+    Array.prototype.forEach.call(view.querySelectorAll('[data-pick]'), function (b) {
+      b.addEventListener('click', function () {
+        var t = document.getElementById('disc-text');
+        t.value = picks[Number(b.getAttribute('data-pick'))].slice(0, window.MichiruStore.DISCOVERY_MAX);
+        t.focus();
+      });
+    });
     document.getElementById('del-day').addEventListener('click', function () {
-      askConfirm('Day ' + pad(n) + ' の記録を削除します。元に戻せません。', '削除する').then(function (ok) {
+      askConfirm('Day ' + pad(n) + ' の記録を削除します。元に戻せません。（「私の発見」に残した言葉は消えません）', '削除する').then(function (ok) {
         if (!ok) return;
         store.deleteDay(n);
         go('#/records');
@@ -523,6 +696,8 @@
     if (parts[0] === 'records' && parts[1]) return renderRecord(parseInt(parts[1], 10));
     if (parts[0] === 'records') return renderRecords();
     if (parts[0] === 'compare') return renderCompare();
+    if (parts[0] === 'discoveries') return renderDiscoveries();
+    if (parts[0] === 'letter') return renderLetter();
     if (parts[0] === 'complete') return renderComplete();
     if (parts[0] === 'settings') return renderSettings();
     renderHome();
@@ -531,6 +706,7 @@
   function updateNav(section) {
     Array.prototype.forEach.call(document.querySelectorAll('.app-nav a'), function (a) {
       var target = a.getAttribute('data-section');
+      if (section === 'letter') section = 'discoveries';
       if (target === section || (target === '' && (section === '' || section === 'day'))) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });

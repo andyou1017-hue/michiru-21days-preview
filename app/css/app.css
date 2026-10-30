@@ -146,7 +146,7 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 
 .app-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(4, 1fr);
   background: var(--white); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
 }
 .app-nav a { min-height: 56px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--ink); font-size: .9rem; }
@@ -166,3 +166,17 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .daily-door p { margin: 8px 0; }
 .daily-door .daily-door-label { font-weight: 600; color: var(--ink); }
 .daily-door .btn { margin-top: 12px; width: min(100%, 330px); }
+
+/* 私の発見・手紙 */
+.discovery-form { margin: 16px 0; padding: 12px; background: var(--beige); border-radius: 10px; }
+.discovery-form label { display: block; font-weight: 600; margin-bottom: 4px; }
+.disc-mini { margin: 8px 0 0; padding-left: 1.2em; font-size: .9rem; }
+.disc-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.disc-list li { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+.disc-list blockquote, .letter-quote { margin: 0; font-family: var(--serif); font-size: 1.05rem; white-space: normal; }
+.letter-quote { background: #fffdf7; border-left: 4px solid var(--gold); padding: 12px 14px; border-radius: 6px; }
+.disc-meta { margin: 6px 0; font-size: .8rem; color: var(--muted); }
+.letter-box { margin: 16px 0; background: var(--beige); border-radius: 10px; padding: 8px 12px; }
+.letter-box summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.letter-read { margin-bottom: 16px; padding: 12px; border: 1px dashed var(--gold); border-radius: 10px; }
+.letter-read h2 { margin: 0 0 4px; font-size: 1rem; }

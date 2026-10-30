@@ -172,7 +172,7 @@ test('T10・T11・T20 日本語・改行・絵文字・長文を保持し、幅3
   await page.reload();
   await page.waitForSelector('#ans-0');
   assert.strictEqual(await page.inputValue('#ans-0'), text);
-  for (const h of ['#/', '#/day/4/1', '#/day/4/2', '#/day/4/3', '#/day/4/4', '#/day/4/5', '#/records', '#/records/4', '#/compare', '#/complete', '#/settings', '#/intro']) {
+  for (const h of ['#/', '#/day/4/1', '#/day/4/2', '#/day/4/3', '#/day/4/4', '#/day/4/5', '#/records', '#/records/4', '#/compare', '#/complete', '#/settings', '#/intro', '#/discoveries', '#/letter', '#/day/1/5', '#/day/7/5']) {
     await page.goto(base + h);
     await page.waitForTimeout(50);
     const w = await page.evaluate(() => document.documentElement.scrollWidth);
@@ -340,7 +340,9 @@ test('T23 どのステップでも中断でき、記録は残る', { skip }, asy
   await page.click('#pause');
   await page.waitForSelector('.day-list');
   assert.match(await page.textContent('.day-card[href="#/day/10/1"]'), /記入あり/);
-  assert.match(await page.textContent('.home'), /前回の続き：Day 10/);
+  // 今日の扉（前回の続き）が Day 10 を指す
+  assert.match(await page.textContent('.daily-door'), /DAY 10 \/ 21[\s\S]*今日のテーマ：これで良かった①/);
+  assert.strictEqual(await page.getAttribute('#door-open', 'href'), '#/day/10/1');
   await context.close();
 });
 
@@ -425,7 +427,7 @@ test('文字の大きさを変えられ、記録にも残る', { skip }, async (
 test('タップできる部分は44px以上', { skip }, async () => {
   const { context, page } = await newPage();
   await consent(page);
-  for (const h of ['#/', '#/day/1/1', '#/day/1/2', '#/day/1/4', '#/day/1/5', '#/settings']) {
+  for (const h of ['#/', '#/day/1/1', '#/day/1/2', '#/day/1/4', '#/day/1/5', '#/settings', '#/discoveries', '#/records']) {
     await page.goto(base + h);
     const small = await page.evaluate(() => Array.from(document.querySelectorAll('main a.btn, main button, main .day-card, main .steps a, .app-nav a'))
       .filter((el) => el.offsetParent !== null)
@@ -454,5 +456,198 @@ test('削除の確認は画面の中で行い、「やめる」で何も消え�
   await page.waitForFunction(() => location.hash === '#/records');
   await waitSaved(page);
   assert.ok(!(await stored(page)).entries[11]);
+  await context.close();
+});
+
+// ---------- 今日の扉（P1） ----------
+test('P1 今日の扉：開くと前回の日へ。完了した日のあとは次の未完了の日を案内し、入口は1つだけ', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  // 初めては Day 01
+  assert.strictEqual(await page.getAttribute('#door-open', 'href'), '#/day/1/1');
+  assert.match(await page.textContent('.daily-door'), /今日のテーマ：今の心を知る/);
+  // 扉と同じ行き先の「前回の続き」ボタンを重ねて置かない
+  assert.strictEqual(await page.locator('main a:not(.day-card)[href="#/day/1/1"]').count(), 1);
+  // Day 03 を完了すると、扉は Day 04 を案内する
+  await page.goto(base + '#/day/3/5');
+  await page.click('#complete');
+  await page.waitForSelector('.done-mark');
+  await page.goto(base + '#/');
+  await page.waitForSelector('.daily-door');
+  assert.strictEqual(await page.getAttribute('#door-open', 'href'), '#/day/4/1');
+  // 扉から1タップで今日のワークへ
+  await page.click('#door-open');
+  await page.waitForSelector('#mood-am');
+  // 21日すべて完了すると、扉は「おわりに」へ
+  for (let n = 1; n <= 21; n++) {
+    await page.goto(base + '#/day/' + n + '/5');
+    if (await page.isVisible('#complete')) await page.click('#complete');
+    await page.waitForSelector(n === 21 ? '.closing' : '.done-mark'); // Day 21 は完了すると「おわりに」へ進む
+  }
+  await page.goto(base + '#/');
+  await page.waitForSelector('.daily-door');
+  assert.strictEqual(await page.getAttribute('#door-open', 'href'), '#/complete');
+  await context.close();
+});
+
+// ---------- 私の発見（P2） ----------
+test('P2 私の発見：選んだ一言だけを残せる。記録の言葉を写して残せる。消せる', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  // 空では残さない
+  await page.goto(base + '#/day/2/5');
+  await page.click('#disc-add');
+  assert.match(await page.textContent('#disc-msg'), /書いてから/);
+  // 夜のふりかえりから残す
+  await page.fill('#disc-text', '当たり前の水が、ありがたかった🐴');
+  await page.click('#disc-add');
+  await page.waitForFunction(() => /残しました/.test(document.getElementById('disc-msg').textContent));
+  assert.strictEqual(await page.inputValue('#disc-text'), '');
+  assert.match(await page.textContent('.disc-mini'), /当たり前の水/);
+  // 記録の画面から、答えを写して整えてから残す
+  await page.goto(base + '#/day/5/3');
+  await page.fill('#ans-1', '毎朝の声かけ。とても長い説明が続く');
+  await waitSaved(page);
+  await page.goto(base + '#/records/5');
+  await page.click('[data-pick="1"]');
+  assert.strictEqual(await page.inputValue('#disc-text'), '毎朝の声かけ。とても長い説明が続く');
+  await page.fill('#disc-text', '毎朝の声かけ');
+  await page.click('#disc-add');
+  await waitSaved(page);
+  // 一覧：新しい順。数や点数は出さない
+  await page.goto(base + '#/discoveries');
+  const items = page.locator('.disc-list li');
+  assert.strictEqual(await items.count(), 2);
+  assert.match(await items.nth(0).textContent(), /毎朝の声かけ[\s\S]*Day 05/);
+  assert.match(await items.nth(1).textContent(), /当たり前の水[\s\S]*Day 02/);
+  assert.ok(!/[0-9]+\s*(個|件|日連続|ポイント|点)/.test(await page.textContent('main')));
+  // 保存され、再読み込みしても残る
+  let s = await stored(page);
+  assert.deepStrictEqual(s.discoveries.map((x) => [x.day, x.text]), [[2, '当たり前の水が、ありがたかった🐴'], [5, '毎朝の声かけ']]);
+  await page.reload();
+  await page.waitForSelector('.disc-list');
+  // 消す（「やめる」では消えない）
+  await page.locator('.disc-list [data-del]').first().click();
+  await page.click('#confirm-cancel');
+  assert.strictEqual(await items.count(), 2);
+  await page.locator('.disc-list [data-del]').first().click();
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => document.querySelectorAll('.disc-list li').length === 1);
+  await waitSaved(page);
+  s = await stored(page);
+  assert.deepStrictEqual(s.discoveries.map((x) => x.text), ['当たり前の水が、ありがたかった🐴']);
+  // 日の記録を消しても、残した言葉は消えない（確認の文で知らせる）
+  await page.goto(base + '#/records/2');
+  await page.click('#del-day');
+  assert.match(await page.textContent('#confirm-msg'), /私の発見.*消えません/);
+  await page.click('#confirm-ok');
+  await waitSaved(page);
+  assert.strictEqual((await stored(page)).discoveries.length, 1);
+  await context.close();
+});
+
+test('P2 私の発見：入力はHTMLとして動かない', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  let alerted = false;
+  page.on('dialog', () => { alerted = true; });
+  await page.goto(base + '#/day/3/5');
+  await page.fill('#disc-text', '<img src=x onerror=alert(1)>');
+  await page.click('#disc-add');
+  await waitSaved(page);
+  await page.goto(base + '#/discoveries');
+  assert.strictEqual(await page.locator('.disc-list img').count(), 0);
+  assert.match(await page.textContent('.disc-list'), /<img src=x onerror=alert\(1\)>/);
+  assert.ok(!alerted);
+  await context.close();
+});
+
+// ---------- 過去の自分への手紙（P3） ----------
+test('P3 手紙：Day01に書くと、Day07・14・21で読むかどうかを選べる。「今は読まない」も選べる', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  // 手紙がないうちは、Day 07 に何も出さない（書かなかったことを責めない）
+  await page.goto(base + '#/day/7/5');
+  assert.strictEqual(await page.locator('#letter-read').count(), 0);
+  // Day 01 で書く（任意・折りたたみ）
+  await page.goto(base + '#/day/1/5');
+  assert.ok(!(await page.isVisible('#letter-text')));
+  await page.click('.letter-box summary');
+  await page.fill('#letter-text', '21日後の私へ。\nどんな日でも、ここに戻ってきてね。');
+  await waitSaved(page);
+  // Day 05 には出ない
+  await page.goto(base + '#/day/5/5');
+  assert.strictEqual(await page.locator('#letter-read').count(), 0);
+  // Day 07：まだ中身は見えない。本人が選ぶ
+  await page.goto(base + '#/day/7/5');
+  assert.ok(await page.isVisible('#letter-read'));
+  assert.ok(!(await page.isVisible('.letter-quote')));
+  await page.click('#letter-skip');
+  assert.match(await page.textContent('#letter-read'), /今は読まないことにしました/);
+  await waitSaved(page);
+  assert.strictEqual((await stored(page)).letterSkipped[7], true);
+  // あとから読める。読んだら、今の私からのひとことを書ける
+  await page.click('#letter-open');
+  assert.match(await page.textContent('.letter-quote'), /どんな日でも、ここに戻ってきてね/);
+  await page.fill('#letter-reply', 'ちゃんと戻ってきたよ');
+  await waitSaved(page);
+  let s = await stored(page);
+  assert.ok(!s.letterSkipped[7]);
+  assert.strictEqual(s.letterReplies[7].text, 'ちゃんと戻ってきたよ');
+  assert.ok(s.letter.written_at);
+  // Day 14・21 でも選べる
+  for (const d of [14, 21]) {
+    await page.goto(base + '#/day/' + d + '/5');
+    assert.ok(await page.isVisible('#letter-open'), 'Day' + d);
+  }
+  // 手紙の画面：元の手紙と、今の私からのひとことを並べる
+  await page.goto(base + '#/letter');
+  assert.match(await page.textContent('main'), /どんな日でも[\s\S]*Day 07[\s\S]*ちゃんと戻ってきたよ/);
+  await context.close();
+});
+
+test('P2・P3 バックアップ・全削除・古いバックアップとの互換', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  await page.fill('#letter-text', 'バックアップする手紙');
+  await page.fill('#disc-text', 'バックアップする発見');
+  await page.click('#disc-add');
+  await waitSaved(page);
+  await page.goto(base + '#/settings');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export')]);
+  const file = await dl.path();
+  const data = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+  assert.strictEqual(data.letter.text, 'バックアップする手紙');
+  assert.strictEqual(data.discoveries[0].text, 'バックアップする発見');
+  // 全削除で、発見と手紙も消える
+  await page.click('#delete-all');
+  await page.click('#confirm-ok');
+  await page.waitForSelector('#agree');
+  let s = await stored(page);
+  assert.deepStrictEqual(s.discoveries, []);
+  assert.strictEqual(s.letter, null);
+  // バックアップから戻すと、発見と手紙も戻る
+  await page.goto(base + '#/settings');
+  await page.setInputFiles('#import-file', file);
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  s = await stored(page);
+  assert.strictEqual(s.letter.text, 'バックアップする手紙');
+  assert.strictEqual(s.discoveries[0].text, 'バックアップする発見');
+  // この機能を足す前の形式のバックアップ（discoveries・letter が無い）も読み込める
+  const old = { app: 'michiru-21days', schema: 1, consentedAt: new Date().toISOString(), settings: { fontSize: 'm' }, progress: { startedAt: null, lastOpenDay: 3 },
+    entries: { 3: { answers: ['前の版の記録'], completed_at: null, updated_at: new Date().toISOString() } } };
+  await page.goto(base + '#/settings');
+  await page.setInputFiles('#import-file', { name: 'old.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(old)) });
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  s = await stored(page);
+  assert.strictEqual(s.entries[3].answers[0], '前の版の記録');
+  assert.deepStrictEqual(s.discoveries, []);
+  assert.strictEqual(s.letter, null);
+  await page.goto(base + '#/discoveries');
+  assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
 });

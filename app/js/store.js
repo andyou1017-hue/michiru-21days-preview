@@ -15,9 +15,20 @@
       consentedAt: null,
       settings: { fontSize: 'm' },
       progress: { startedAt: null, lastOpenDay: 1 },
-      entries: {}
+      entries: {},
+      discoveries: [],      // 私の発見：本人が選んで残した一言 [{ id, day, text, created_at }]
+      letter: null,         // 過去の自分への手紙：Day1 に書く「21日後の私へ」 { text, written_at, updated_at }
+      letterReplies: {},    // 手紙を読んだあとの、今の私からの一言 { 7: { text, updated_at }, 14: …, 21: … }
+      letterSkipped: {}     // 「今は読まない」を選んだ日 { 7: true }
     };
   }
+
+  var DISCOVERY_MAX = 400;
+  var LETTER_MAX = 4000;
+  var LETTER_DAYS = [7, 14, 21];
+
+  function str(v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; }
+  function isoOrNull(v) { return typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null; }
 
   function emptyEntry(day) {
     return {
@@ -32,6 +43,8 @@
       completed_at: null
     };
   }
+
+  function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
   function isMood(v) { return v === null || (Number.isInteger(v) && v >= 0 && v <= 10); }
 
@@ -69,6 +82,22 @@
         if (e) s.entries[d] = e;
       }
     }
+    // 以下は「私の発見」「手紙」の追加分。古いバックアップには無いので、無ければ空のまま
+    if (Array.isArray(raw.discoveries)) {
+      raw.discoveries.slice(0, 500).forEach(function (x) {
+        if (!x || typeof x.text !== 'string' || !x.text.trim()) return;
+        var day = Number.isInteger(x.day) && x.day >= 1 && x.day <= 21 ? x.day : null;
+        s.discoveries.push({ id: str(x.id, 40) || newId(), day: day, text: str(x.text, DISCOVERY_MAX), created_at: isoOrNull(x.created_at) || new Date().toISOString() });
+      });
+    }
+    if (raw.letter && typeof raw.letter.text === 'string') {
+      s.letter = { text: str(raw.letter.text, LETTER_MAX), written_at: isoOrNull(raw.letter.written_at), updated_at: isoOrNull(raw.letter.updated_at) };
+    }
+    LETTER_DAYS.forEach(function (d) {
+      var r = raw.letterReplies && raw.letterReplies[d];
+      if (r && typeof r.text === 'string') s.letterReplies[d] = { text: str(r.text, LETTER_MAX), updated_at: isoOrNull(r.updated_at) };
+      if (raw.letterSkipped && raw.letterSkipped[d] === true) s.letterSkipped[d] = true;
+    });
     return s;
   }
 
@@ -238,6 +267,43 @@
     return Promise.resolve();
   };
 
+  // ---- 私の発見 ----
+  Store.prototype.addDiscovery = function (day, text) {
+    text = str(text, DISCOVERY_MAX).trim();
+    if (!text) return null;
+    var item = { id: newId(), day: day || null, text: text, created_at: now() };
+    this.state.discoveries.push(item);
+    this.scheduleSave();
+    return item;
+  };
+  Store.prototype.deleteDiscovery = function (id) {
+    this.state.discoveries = this.state.discoveries.filter(function (x) { return x.id !== id; });
+    this.flush();
+  };
+  Store.prototype.discoveriesOf = function (day) {
+    return this.state.discoveries.filter(function (x) { return x.day === day; });
+  };
+
+  // ---- 過去の自分への手紙 ----
+  Store.prototype.setLetter = function (text) {
+    var t = now();
+    var l = this.state.letter || { text: '', written_at: t, updated_at: t };
+    l.text = str(text, LETTER_MAX);
+    l.updated_at = t;
+    if (!l.written_at) l.written_at = t;
+    this.state.letter = l;
+    this.scheduleSave();
+  };
+  Store.prototype.hasLetter = function () { return !!(this.state.letter && this.state.letter.text.trim()); };
+  Store.prototype.setLetterReply = function (day, text) {
+    this.state.letterReplies[day] = { text: str(text, LETTER_MAX), updated_at: now() };
+    this.scheduleSave();
+  };
+  Store.prototype.setLetterSkipped = function (day, skipped) {
+    if (skipped) this.state.letterSkipped[day] = true; else delete this.state.letterSkipped[day];
+    this.scheduleSave();
+  };
+
   Store.prototype.completedDays = function () {
     var out = [];
     for (var d = 1; d <= 21; d++) if (this.state.entries[d] && this.state.entries[d].completed_at) out.push(d);
@@ -270,5 +336,5 @@
     this.pushRemote();
   };
 
-  window.MichiruStore = { Store: Store, normalizeState: normalizeState, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID };
+  window.MichiruStore = { Store: Store, normalizeState: normalizeState, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };
 })();
