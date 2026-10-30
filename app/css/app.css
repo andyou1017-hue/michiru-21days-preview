@@ -180,3 +180,4 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .letter-box summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
 .letter-read { margin-bottom: 16px; padding: 12px; border: 1px dashed var(--gold); border-radius: 10px; }
 .letter-read h2 { margin: 0 0 4px; font-size: 1rem; }
+.letter-lead { font-family: var(--serif); font-size: 1.05rem; margin: 4px 0; }

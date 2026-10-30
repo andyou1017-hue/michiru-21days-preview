@@ -352,7 +352,7 @@
           '<button type="button" class="btn small danger" data-del="' + esc(x.id) + '">この言葉を消す</button></li>';
       }).join('') + '</ul>'
         : '<p class="muted">まだありません。各日の「夜のふりかえり」や、記録の画面から、残したい一言を選べます。</p>') +
-      (store.hasLetter() ? '<h2>21日後の私への手紙</h2><p><a href="#/letter">Day 01 に書いた手紙を開く</a></p>' : '') +
+      (store.hasFutureLetter() || store.hasLegacyLetter() ? '<h2>未来からの手紙</h2><p><a href="#/letter">未来のあなたからの手紙を開く</a></p>' : '') +
       '</section>';
     Array.prototype.forEach.call(view.querySelectorAll('[data-del]'), function (b) {
       b.addEventListener('click', function () {
@@ -364,37 +364,44 @@
     focusHeading();
   }
 
-  // ---------- 過去の自分への手紙（P3） ----------
+  // ---------- 未来からの手紙（P3） ----------
+  // 未来の自分になったつもりで、今の自分に宛てて書く手紙（オーナー訂正 2026-10-31）。
+  // 書く日（Day 01）・読み返す日（Day 07・14・21）・案内の文言は暫定。docs/future-letter-design-v0.1.md
   function letterWriteHtml() {
-    var l = store.state.letter;
-    return '<details class="letter-box"' + (l && l.text ? ' open' : '') + '><summary>21日後の私へ　手紙を書く（任意）</summary>' +
-      '<p class="muted">書いた手紙は、Day 07・14・21 に、読みたいときだけ開けます。書かなくてもかまいません。</p>' +
-      '<label for="letter-text" class="sr-only">21日後の私へ</label>' +
-      '<textarea id="letter-text" rows="5" maxlength="4000">' + esc(l ? l.text : '') + '</textarea></details>';
+    var l = store.state.futureLetter;
+    return '<details class="letter-box"' + (l && l.text ? ' open' : '') + '><summary>未来からの手紙（任意）</summary>' +
+      '<p class="letter-lead">未来のあなたは、今のあなたに何を伝えたいでしょう。</p>' +
+      '<p class="muted">21日を歩いた先のあなたになったつもりで、今日のあなたへ書いてみましょう。書かなくてもかまいません。' +
+      'この手紙は、Day 07・14・21 に、読みたいときだけ読み返せます。</p>' +
+      '<label for="letter-text" class="sr-only">未来のあなたから、今のあなたへ</label>' +
+      '<textarea id="letter-text" rows="5" maxlength="4000" placeholder="今のあなたへ。">' + esc(l ? l.text : '') + '</textarea></details>';
   }
   function bindLetterWrite() {
     var t = document.getElementById('letter-text');
-    t.addEventListener('input', function () { store.setLetter(t.value); });
+    t.addEventListener('input', function () { store.setFutureLetter(t.value); });
   }
 
   // Day 7・14・21：本人が「読む」を選んだときだけ表示する
   function letterReadHtml(day) {
-    if (window.MichiruStore.LETTER_DAYS.indexOf(day) < 0 || !store.hasLetter()) return '';
-    var skipped = !!store.state.letterSkipped[day];
+    if (window.MichiruStore.LETTER_DAYS.indexOf(day) < 0 || !store.hasFutureLetter()) return '';
+    var skipped = !!store.state.futureSkipped[day];
     return '<section class="letter-read" aria-labelledby="letter-read-title" id="letter-read">' +
-      '<h2 id="letter-read-title">Day 01 のあなたからの手紙があります</h2>' +
+      '<h2 id="letter-read-title">未来のあなたから、手紙が届いています</h2>' +
       (skipped ? '<p class="muted">今は読まないことにしました。読みたくなったら、いつでも開けます。</p>' : '<p class="muted">読むかどうかは、あなたが選べます。</p>') +
       '<p class="row"><button type="button" class="btn" id="letter-open">手紙を読む</button>' +
       (skipped ? '' : '<button type="button" class="btn" id="letter-skip">今は読まない</button>') + '</p>' +
       '<div id="letter-body" hidden></div></section>';
   }
-  function letterBodyHtml(day) {
-    var l = store.state.letter;
-    var r = store.state.letterReplies[day];
+  function writtenOn(l) {
     var wd = l.written_at ? new Date(l.written_at) : null;
+    return wd ? wd.getFullYear() + '/' + (wd.getMonth() + 1) + '/' + wd.getDate() : '';
+  }
+  function letterBodyHtml(day) {
+    var l = store.state.futureLetter;
+    var r = store.state.futureReplies[day];
     return '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
-      (wd ? '<p class="disc-meta">' + wd.getFullYear() + '/' + (wd.getMonth() + 1) + '/' + wd.getDate() + ' に書いた手紙</p>' : '') +
-      '<div class="field"><label for="letter-reply">今の私から、ひとこと（任意）</label>' +
+      '<p class="disc-meta">' + (writtenOn(l) ? writtenOn(l) + '、' : '') + '未来のあなたになって書いた手紙</p>' +
+      '<div class="field"><label for="letter-reply">手紙を受け取った今のあなたから、ひとこと（任意）</label>' +
       '<textarea id="letter-reply" rows="3" maxlength="4000">' + esc(r ? r.text : '') + '</textarea></div>' +
       '<p><button type="button" class="btn small" id="letter-close">手紙を閉じる</button></p>';
   }
@@ -404,13 +411,13 @@
     var body = document.getElementById('letter-body');
     var skip = document.getElementById('letter-skip');
     open.addEventListener('click', function () {
-      store.setLetterSkipped(day, false);
+      store.setFutureSkipped(day, false);
       body.innerHTML = letterBodyHtml(day);
       body.hidden = false;
       open.hidden = true;
       if (skip) skip.hidden = true;
       var reply = document.getElementById('letter-reply');
-      reply.addEventListener('input', function () { store.setLetterReply(day, reply.value); });
+      reply.addEventListener('input', function () { store.setFutureReply(day, reply.value); });
       document.getElementById('letter-close').addEventListener('click', function () {
         body.hidden = true; body.innerHTML = ''; open.hidden = false; open.focus();
       });
@@ -418,7 +425,7 @@
       body.querySelector('.letter-quote').focus();
     });
     if (skip) skip.addEventListener('click', function () {
-      store.setLetterSkipped(day, true);
+      store.setFutureSkipped(day, true);
       var sec = document.getElementById('letter-read');
       sec.outerHTML = letterReadHtml(day);
       bindLetterRead(day);
@@ -426,21 +433,35 @@
     });
   }
 
-  function renderLetter() {
-    setTitle('21日後の私への手紙');
-    if (!store.hasLetter()) {
-      view.innerHTML = '<section class="letter-page"><h1>21日後の私への手紙</h1><p class="muted">手紙はまだありません。Day 01 の「夜のふりかえり」で、書きたいときに書けます。</p>' +
-        '<p><a href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p></section>';
-      return focusHeading();
-    }
+  function legacyLetterHtml() {
+    if (!store.hasLegacyLetter()) return '';
     var l = store.state.letter;
     var replies = window.MichiruStore.LETTER_DAYS.filter(function (d) { return store.state.letterReplies[d] && store.state.letterReplies[d].text; });
-    view.innerHTML = '<section class="letter-page"><h1>21日後の私への手紙</h1>' +
+    return '<details class="letter-box legacy"><summary>以前の形式で書いた手紙（21日後の自分へ）</summary>' +
+      '<p class="muted">試作の途中で書いた、今の自分から未来の自分への手紙です。消さずに残しています。</p>' +
       '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
-      (replies.length ? '<h2>今の私からのひとこと</h2><dl class="record">' + replies.map(function (d) {
+      (replies.length ? '<dl class="record">' + replies.map(function (d) {
         return '<dt>Day ' + pad(d) + '</dt><dd>' + nl2br(store.state.letterReplies[d].text) + '</dd>';
+      }).join('') + '</dl>' : '') + '</details>';
+  }
+
+  function renderLetter() {
+    setTitle('未来からの手紙');
+    if (!store.hasFutureLetter()) {
+      view.innerHTML = '<section class="letter-page"><h1>未来からの手紙</h1><p class="muted">手紙はまだありません。Day 01 の「夜のふりかえり」で、書きたいときに書けます。</p>' +
+        '<p><a href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p>' + legacyLetterHtml() + '</section>';
+      return focusHeading();
+    }
+    var l = store.state.futureLetter;
+    var replies = window.MichiruStore.LETTER_DAYS.filter(function (d) { return store.state.futureReplies[d] && store.state.futureReplies[d].text; });
+    view.innerHTML = '<section class="letter-page"><h1>未来からの手紙</h1>' +
+      '<p class="muted">' + (writtenOn(l) ? writtenOn(l) + '、' : '') + '未来のあなたになって、今のあなたへ書いた手紙</p>' +
+      '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
+      (replies.length ? '<h2>手紙を受け取った、今のあなたから</h2><dl class="record">' + replies.map(function (d) {
+        return '<dt>Day ' + pad(d) + '</dt><dd>' + nl2br(store.state.futureReplies[d].text) + '</dd>';
       }).join('') + '</dl>' : '') +
-      '<p class="row"><a class="btn" href="#/day/1/5">手紙を書き直す（Day 01）</a><a class="btn" href="#/discoveries">← 私の発見</a></p></section>';
+      '<p class="row"><a class="btn" href="#/day/1/5">手紙を書き直す（Day 01）</a><a class="btn" href="#/discoveries">← 私の発見</a></p>' +
+      legacyLetterHtml() + '</section>';
     focusHeading();
   }
 
@@ -516,7 +537,7 @@
     view.innerHTML = '<section class="records"><h1>これまでの記録</h1>' +
       '<p class="muted">記録はあなただけが見るためのものです。</p>' +
       '<p class="row"><a class="btn" href="#/compare">Day 05 と Day 20 を並べて見る</a><a class="btn" href="#/discoveries">私の発見</a>' +
-      (store.hasLetter() ? '<a class="btn" href="#/letter">21日後の私への手紙</a>' : '') + '</p>' +
+      (store.hasFutureLetter() || store.hasLegacyLetter() ? '<a class="btn" href="#/letter">未来からの手紙</a>' : '') + '</p>' +
       (days.length ? '<ul class="record-list">' + days.map(function (n) {
         return '<li><a href="#/records/' + n + '">Day ' + pad(n) + '「' + esc(dayOf(n).title) + '」' + (store.entry(n).completed_at ? ' ✓ 完了' : '') + '</a></li>';
       }).join('') + '</ul>' : '<p>まだ記録はありません。</p>') +
