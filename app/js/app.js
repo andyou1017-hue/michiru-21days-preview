@@ -160,6 +160,16 @@
       '</section>';
     // style属性はセキュリティ設定（CSP）で使えないため、あとから幅を設定する
     document.getElementById('bar-fill').style.width = (done.length / 21 * 100) + '%';
+    if (store.isSealed() && !store.isOpened()) {
+      var homeView = view.firstChild;
+      window.MichiruClock.trustedNow().then(function (now) {
+        if (!store.canOpen(now) || view.firstChild !== homeView) return;
+        var p = document.createElement('p');
+        p.className = 'letter-arrived';
+        p.innerHTML = '<a href="#/letter">✉ ' + esc(LETTER_ARRIVED) + '</a>';
+        homeView.querySelector('.daily-door').insertAdjacentElement('afterend', p);
+      });
+    }
   }
 
   // ---------- 画面：1日の流れ（S03〜S07） ----------
@@ -297,7 +307,7 @@
       bindText(n, document.getElementById('refl'), function (v) { return { reflection: v }; });
       bindDiscoveryForm(n);
       if (n === 1) bindLetterWrite();
-      bindLetterRead(n);
+      fillLetterRead(n);
       var c = document.getElementById('complete');
       if (c) c.addEventListener('click', function () {
         c.disabled = true; // 二重押しを防ぐ
@@ -369,7 +379,7 @@
 
   // ---------- 未来からの手紙（P3） ----------
   // 21日間を歩き終えた未来の自分になったつもりで、今の自分に宛てて書く手紙（オーナー仕様 2026-10-31）。
-  // Day 1 に書いて封を閉じる → Day 7 で初めて開封できる（読まずに取っておける）→ 一度開けたら、いつでも読み返せる。
+  // Day 1 に書いて封をする → 封をしてから7日後（サーバー時刻で判断）に開封できる（開けずに取っておける）→ 一度開いたら、いつでも読み返せる。
   // Day 7・14・21 では、読んだあとにその日に感じたことを記録できる。導入と誘導の文はオーナーの原文のまま。
   var LETTER_INTRO = ['私たちは普段、今の自分から未来を見ています。', 'でも今日は、少しだけ反対のことをしてみます。',
     'あなたが望んだ未来。', '幸せで、喜びに満ち、心から「ありがとう」と感じているあなた。',
@@ -379,7 +389,21 @@
   var LETTER_GUIDE = ['少し目を閉じて、21日間を歩み終えた自分をイメージしてみましょう。', 'そのあなたは、今のあなたに何を伝えたいでしょうか。',
     '未来のあなたになったつもりで、今のあなたへ手紙を書いてみましょう。', 'うまく書こうとしなくて大丈夫です。',
     '未来のあなたから、今のあなたへ。', 'その言葉を、自由に綴ってください。'];
+  // 案内文（オーナー指定 2026-10-31）
+  var LETTER_BEFORE_SEAL = '書き終えたら、そっと封をしましょう。未来のあなたからの手紙は、7日後に届きます。書かなくてもかまいません。';
+  var LETTER_SEAL_CONFIRM = '封をすると、7日間は開けることも、書き直すこともできません。今の言葉を大切に、そのまま残しておきましょう。';
   var LETTER_ARRIVED = '未来のあなたから、手紙が届いています。';
+  var LETTER_ARRIVED_NOTE = '今、開いても、もう少し後に開いてもかまいません。';
+  var LETTER_REREAD = '一度開いた手紙は、いつでも読み返せます。';
+  // 未来の自分の心を体感する誘導（仮・オーナー確認待ち）。瞑想のあと、書く前に出す
+  var FUTURE_FEEL = ['21日間を歩き終えたあなたは、どんな表情をしていますか。', 'どんな気持ちで、毎日を過ごしていますか。',
+    '胸のあたりに、どんなあたたかさがありますか。', 'その心のまま、今のあなたを見てみましょう。'];
+  function unlockText() {
+    var t = store.unlockAt();
+    if (!isFinite(t)) return '7日後';
+    var d = new Date(t);
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + d.getHours() + '時ごろ';
+  }
   // 「答えから見る」の解説（仮・オーナー確認待ち。2026-10-31 オーナー指示で追加）
   var ANSWER_VIEW = ['「答えから見る」とは、望んだ未来がすでにかなった場所に立って、そこから今を見ることです。',
     '今の自分から未来を見ると、足りないものや、これからしなければならないことに目が向きやすくなります。',
@@ -399,11 +423,11 @@
     var head = '<summary>未来からの手紙（任意）</summary>';
     if (store.isOpened()) {
       return '<details class="letter-box" open>' + head +
-        '<p class="seal-state">✉ 手紙は開封済みです。いつでも読み返せます。</p><p><a class="btn small" href="#/letter">手紙を読み返す</a></p></details>';
+        '<p class="seal-state">✉ ' + esc(LETTER_REREAD) + '</p><p><a class="btn small" href="#/letter">手紙を読み返す</a></p></details>';
     }
     if (store.isSealed()) {
       return '<details class="letter-box" open>' + head +
-        '<p class="seal-state">✉ 封をしました。手紙は Day 07 に届きます。</p></details>';
+        '<p class="seal-state">✉ 封をしました。未来のあなたからの手紙は、' + esc(unlockText()) + 'に届きます。</p></details>';
     }
     var ready = !!(l && l.text) || letterPrepDone;
     return '<details class="letter-box"' + (l && l.text ? ' open' : '') + '>' + head +
@@ -417,14 +441,15 @@
       '<p id="prep-guide" class="t-guide"></p>' +
       '<p class="row"><button type="button" class="btn" id="prep-pause">一時停止</button><button type="button" class="btn" id="prep-resume" hidden>再開</button>' +
       '<button type="button" class="btn" id="prep-stop">終える</button></p></div>' +
-      '<p id="prep-done" class="seal-state"' + (letterPrepDone ? '' : ' hidden') + '>心が整ったら、その満たされた感覚のまま、手紙を書いてみましょう。</p>' +
+      '<div id="prep-done"' + (letterPrepDone ? '' : ' hidden') + '><div class="future-feel">' + lines(FUTURE_FEEL) + '</div>' +
+      '<p class="seal-state">心が整ったら、その満たされた感覚のまま、手紙を書いてみましょう。</p></div>' +
       '<p><button type="button" class="btn small" id="prep-skip"' + (ready ? ' hidden' : '') + '>瞑想をせずに書く</button></p></section>' +
       '<div id="letter-write"' + (ready ? '' : ' hidden') + '>' +
       '<div class="letter-guide">' + lines(LETTER_GUIDE) + '</div>' +
       '<label for="letter-text" class="sr-only">未来のあなたから、今のあなたへの手紙</label>' +
       '<textarea id="letter-text" rows="7" maxlength="4000">' + esc(l ? l.text : '') + '</textarea>' +
-      '<p class="muted">書き終えたら、封を閉じてください。封を閉じた手紙は、Day 07 に届きます。書かなくてもかまいません。</p>' +
-      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>書き終えたら、封を閉じる</button></p></div></details>';
+      '<p class="muted">' + esc(LETTER_BEFORE_SEAL) + '</p>' +
+      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>封をする</button></p></div></details>';
   }
   var letterPrepDone = false; // この画面で瞑想を終えたか（保存はしない）
 
@@ -482,10 +507,14 @@
     var seal = document.getElementById('letter-seal');
     t.addEventListener('input', function () { store.setFutureLetter(t.value); seal.disabled = !t.value.trim(); });
     seal.addEventListener('click', function () {
-      askConfirm('封を閉じると、Day 07 まで開けられません。書き直しもできなくなります。', '封を閉じる').then(function (ok) {
-        if (!ok) return;
+      askConfirm(LETTER_SEAL_CONFIRM, '封をする').then(function (ok) {
+        if (!ok) return null;
+        seal.disabled = true;
+        return window.MichiruClock.trustedNow().then(function (now) { return { now: now }; });
+      }).then(function (r) {
+        if (!r) return;
         store.setFutureLetter(t.value);
-        store.sealFutureLetter();
+        store.sealFutureLetter(r.now);
         var box = document.querySelector('.letter-box');
         box.outerHTML = letterWriteHtml();
         var st = document.querySelector('.seal-state');
@@ -494,20 +523,49 @@
     });
   }
 
-  // Day 7・14・21：封をした手紙が届く。開けるかどうかは本人が選ぶ
+  // Day 7・14・21：封をした手紙。開封できるかは、サーバー時刻で「封の時刻＋7日」を過ぎたかで決める
   function letterReadHtml(day) {
     if (window.MichiruStore.LETTER_DAYS.indexOf(day) < 0 || !store.isSealed()) return '';
-    var opened = store.isOpened();
-    var kept = !opened && !!store.state.futureSkipped[day];
-    var note = opened ? '一度開けた手紙は、いつでも読み返せます。'
-      : (kept ? '読まずに取っておくことにしました。開けたくなったら、いつでも開けられます。' : '封を開けるかどうかは、あなたが選べます。読まずに取っておくこともできます。');
-    return '<section class="letter-read" aria-labelledby="letter-read-title" id="letter-read">' +
-      '<h2 id="letter-read-title">' + esc(LETTER_ARRIVED) + '</h2>' +
-      '<p class="seal-state">' + (opened ? '✉ 開封済み' : '✉ 封をしたまま') + '</p>' +
-      '<p class="muted">' + note + '</p>' +
-      '<p class="row"><button type="button" class="btn" id="letter-open">' + (opened ? '手紙を読む' : '封を開ける') + '</button>' +
-      (opened || kept ? '' : '<button type="button" class="btn" id="letter-skip">今は読まずに取っておく</button>') + '</p>' +
-      '<div id="letter-body" hidden></div></section>';
+    return '<section class="letter-read" aria-labelledby="letter-read-title" id="letter-read" aria-busy="true">' +
+      '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="muted">確かめています…</p></section>';
+  }
+  // 状態：opened（開封済み）／ready（届いている）／locked（まだ7日たっていない）／unknown（時刻を確かめられない）
+  function letterStatus(now) {
+    if (store.isOpened()) return 'opened';
+    if (typeof now !== 'number') return 'unknown';
+    return store.canOpen(now) ? 'ready' : 'locked';
+  }
+  function letterStateHtml(status, day) {
+    if (status === 'opened') {
+      return '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="seal-state">✉ 開封済み</p>' +
+        '<p class="muted">' + esc(LETTER_REREAD) + '</p>' +
+        '<p class="row"><button type="button" class="btn" id="letter-open">手紙を読む</button></p><div id="letter-body" hidden></div>';
+    }
+    if (status === 'ready') {
+      var kept = !!(day && store.state.futureSkipped[day]);
+      return '<h2 id="letter-read-title">' + esc(LETTER_ARRIVED) + '</h2><p class="seal-state">✉ 封をしたまま</p>' +
+        '<p class="muted">' + esc(LETTER_ARRIVED_NOTE) + '</p>' +
+        '<p class="row"><button type="button" class="btn" id="letter-open">封を開ける</button>' +
+        (kept ? '' : '<button type="button" class="btn" id="letter-skip">もう少し後に開く</button>') + '</p><div id="letter-body" hidden></div>';
+    }
+    if (status === 'locked') {
+      return '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="seal-state">✉ 封をしたまま</p>' +
+        '<p class="muted">封をしてから7日後、' + esc(unlockText()) + 'に届きます。それまでは、そっと取っておきましょう。</p>';
+    }
+    return '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="seal-state">✉ 封をしたまま</p>' +
+      '<p class="muted">手紙が届いているかを、通信できるときに確かめます。インターネットにつながった状態で、もう一度開いてください。</p>';
+  }
+  // 画面に描いたあと、時刻を確かめて手紙の欄を埋める
+  function fillLetterRead(day) {
+    var sec = document.getElementById('letter-read');
+    if (!sec) return;
+    window.MichiruClock.trustedNow().then(function (now) {
+      if (!document.body.contains(sec)) return; // 画面を移ったあと
+      store.rebaseSeal(now);
+      sec.removeAttribute('aria-busy');
+      sec.innerHTML = letterStateHtml(letterStatus(now), day);
+      bindLetterRead(day, now);
+    });
   }
   function writtenOn(l) {
     var wd = l.written_at ? new Date(l.written_at) : null;
@@ -515,48 +573,53 @@
   }
   function letterBodyHtml(day) {
     var l = store.state.futureLetter;
-    var r = store.state.futureReplies[day];
+    var r = day ? store.state.futureReplies[day] : null;
     return '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
       '<p class="disc-meta">' + (writtenOn(l) ? writtenOn(l) + '、' : '') + '未来のあなたになって書いた手紙</p>' +
-      '<div class="field"><label for="letter-reply">手紙を読んで、今日のあなたが感じたこと（任意）</label>' +
-      '<textarea id="letter-reply" rows="3" maxlength="4000">' + esc(r ? r.text : '') + '</textarea></div>' +
+      (day ? '<div class="field"><label for="letter-reply">手紙を読んで、今日のあなたが感じたこと（任意）</label>' +
+        '<textarea id="letter-reply" rows="3" maxlength="4000">' + esc(r ? r.text : '') + '</textarea></div>' : '') +
       '<p><button type="button" class="btn small" id="letter-close">手紙を閉じる</button></p>';
   }
-  function bindLetterRead(day) {
+  function showLetterBody(day) {
+    var body = document.getElementById('letter-body');
+    var open = document.getElementById('letter-open');
+    body.innerHTML = letterBodyHtml(day);
+    body.hidden = false;
+    open.hidden = true;
+    var reply = document.getElementById('letter-reply');
+    if (reply) reply.addEventListener('input', function () { store.setFutureReply(day, reply.value); });
+    document.getElementById('letter-close').addEventListener('click', function () {
+      body.hidden = true; body.innerHTML = ''; open.hidden = false; open.focus();
+    });
+    var q = body.querySelector('.letter-quote');
+    q.setAttribute('tabindex', '-1'); q.focus();
+  }
+  function bindLetterRead(day, now) {
+    var sec = document.getElementById('letter-read');
     var open = document.getElementById('letter-open');
     if (!open) return;
-    var skip = document.getElementById('letter-skip');
     open.addEventListener('click', function () {
-      store.openFutureLetter();
-      var sec = document.getElementById('letter-read');
-      sec.outerHTML = letterReadHtml(day); // 「開封済み」の表示に切り替える
-      var body = document.getElementById('letter-body');
-      var again = document.getElementById('letter-open');
-      body.innerHTML = letterBodyHtml(day);
-      body.hidden = false;
-      again.hidden = true;
-      var reply = document.getElementById('letter-reply');
-      reply.addEventListener('input', function () { store.setFutureReply(day, reply.value); });
-      document.getElementById('letter-close').addEventListener('click', function () {
-        body.hidden = true; body.innerHTML = ''; again.hidden = false; again.focus();
+      if (store.isOpened()) { showLetterBody(day); return; }
+      open.disabled = true; // 二重押しを防ぐ
+      // 押したときにも、もう一度時刻を確かめる
+      window.MichiruClock.trustedNow().then(function (t) {
+        if (!store.openFutureLetter(t)) {
+          sec.innerHTML = letterStateHtml(letterStatus(t), day);
+          bindLetterRead(day, t);
+          return;
+        }
+        sec.innerHTML = letterStateHtml('opened', day);
+        bindLetterRead(day, t);
+        showLetterBody(day);
       });
-      again.addEventListener('click', function () { bindOpenAgain(day); });
-      var q = body.querySelector('.letter-quote');
-      q.setAttribute('tabindex', '-1'); q.focus();
     });
+    var skip = document.getElementById('letter-skip');
     if (skip) skip.addEventListener('click', function () {
-      store.setFutureSkipped(day, true);
-      document.getElementById('letter-read').outerHTML = letterReadHtml(day);
-      bindLetterRead(day);
+      if (day) store.setFutureSkipped(day, true);
+      sec.innerHTML = letterStateHtml(letterStatus(now), day);
+      bindLetterRead(day, now);
       document.getElementById('letter-open').focus();
     });
-  }
-  // 閉じたあと、もう一度読む
-  function bindOpenAgain(day) {
-    var sec = document.getElementById('letter-read');
-    sec.outerHTML = letterReadHtml(day);
-    bindLetterRead(day);
-    document.getElementById('letter-open').click();
   }
 
   function legacyLetterHtml() {
@@ -574,23 +637,24 @@
   function renderLetter() {
     setTitle('未来からの手紙');
     var body;
-    if (store.isOpened()) {
-      var l = store.state.futureLetter;
-      var replies = window.MichiruStore.LETTER_DAYS.filter(function (d) { return store.state.futureReplies[d] && store.state.futureReplies[d].text; });
-      body = '<p class="muted">' + (writtenOn(l) ? writtenOn(l) + '、' : '') + '未来のあなたになって、今のあなたへ書いた手紙</p>' +
-        '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
-        (replies.length ? '<h2>手紙を読んで、感じたこと</h2><dl class="record">' + replies.map(function (d) {
-          return '<dt>Day ' + pad(d) + '</dt><dd>' + nl2br(store.state.futureReplies[d].text) + '</dd>';
-        }).join('') + '</dl>' : '');
-    } else if (store.isSealed()) {
-      body = '<p class="seal-state">✉ 封をした手紙があります。</p><p class="muted">Day 07 から開けられます。Day 07 の「夜のふりかえり」で、開けるかどうかを選べます。</p>';
+    if (store.isSealed()) {
+      body = '<section class="letter-read" id="letter-read" aria-labelledby="letter-read-title" aria-busy="true">' +
+        '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="muted">確かめています…</p></section>' +
+        '<div id="letter-replies"></div>';
     } else if (store.hasFutureLetter()) {
-      body = '<p class="muted">書きかけの手紙があります。Day 01 の「夜のふりかえり」で、書き終えたら封を閉じてください。</p><p><a class="btn" href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p>';
+      body = '<p class="muted">書きかけの手紙があります。Day 01 の「夜のふりかえり」で、書き終えたら封をしてください。</p><p><a class="btn" href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p>';
     } else {
       body = '<p class="muted">手紙はまだありません。Day 01 の「夜のふりかえり」で、書きたいときに書けます。</p><p><a href="#/day/1/5">Day 01 の夜のふりかえりへ</a></p>';
     }
     view.innerHTML = '<section class="letter-page"><h1>未来からの手紙</h1>' + body +
       '<p class="row"><a class="btn" href="#/discoveries">← 私の発見</a></p>' + legacyLetterHtml() + '</section>';
+    if (store.isSealed()) fillLetterRead(null);
+    var replies = window.MichiruStore.LETTER_DAYS.filter(function (d) { return store.state.futureReplies[d] && store.state.futureReplies[d].text; });
+    if (store.isOpened() && replies.length) {
+      document.getElementById('letter-replies').innerHTML = '<h2>手紙を読んで、感じたこと</h2><dl class="record">' + replies.map(function (d) {
+        return '<dt>Day ' + pad(d) + '</dt><dd>' + nl2br(store.state.futureReplies[d].text) + '</dd>';
+      }).join('') + '</dl>';
+    }
     focusHeading();
   }
 
@@ -848,6 +912,7 @@
     if (timer) { timer.dispose(); timer = null; }
     if (prepTimer) { prepTimer.dispose(); prepTimer = null; }
     letterPrepDone = false;
+    store.noteDeviceTime();
     store.flush();
     var h = location.hash.replace(/^#/, '') || '/';
     var parts = h.split('/').filter(Boolean);

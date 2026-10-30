@@ -190,3 +190,7 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .answer-view p { margin: 0 0 .5em; line-height: 1.9; }
 .letter-prep { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--white); text-align: center; }
 .letter-prep h3 { margin: 0 0 4px; font-size: 1rem; }
+.future-feel { font-family: var(--serif); line-height: 1.9; margin: 8px 0; }
+.future-feel p { margin: 0 0 .3em; }
+.letter-arrived { margin: -6px 0 16px; text-align: center; }
+.letter-arrived a { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px dashed var(--gold); border-radius: 999px; background: #fffdf7; text-decoration: none; }

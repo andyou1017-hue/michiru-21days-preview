@@ -26,7 +26,8 @@
       // 未来からの手紙としては扱わず、消さずに残して読めるだけにする
       letter: null,
       letterReplies: {},
-      drafts: {}            // まだ「私の発見」に残していない書きかけ { 5: '…' }（画面を移っても消えないように）
+      drafts: {},           // まだ「私の発見」に残していない書きかけ { 5: '…' }（画面を移っても消えないように）
+      clock: { maxSeen: null } // これまでに見た端末時刻の最大値（端末の時計を戻しても封の時刻が早まらないように）
     };
   }
 
@@ -49,6 +50,13 @@
       updated_at: null,
       completed_at: null
     };
+  }
+
+  var SEAL_MS = 7 * 24 * 60 * 60 * 1000;
+  // 開けられるようになる時刻：封をしたときのサーバー時刻（無ければ端末時刻）から7日後
+  function unlockTime(fl) {
+    var basis = Date.parse(fl.sealed_trusted_at || fl.sealed_at);
+    return isNaN(basis) ? Infinity : basis + SEAL_MS;
   }
 
   function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -105,10 +113,15 @@
     }
     s.futureLetter = letterOf(raw.futureLetter);
     if (s.futureLetter) {
-      // 封（sealed_at）・開封（opened_at）。封の無い手紙は、まだ書きかけとして扱う
-      s.futureLetter.sealed_at = isoOrNull(raw.futureLetter.sealed_at);
-      s.futureLetter.opened_at = s.futureLetter.sealed_at ? isoOrNull(raw.futureLetter.opened_at) : null;
+      // 封（sealed_at・sealed_trusted_at）・開封（opened_at）。封の無い手紙は、まだ書きかけとして扱う。
+      // 開封の日時は「封の基準時刻＋7日」以降のものだけ認める（壊れた・書き換えられた保存で開封済みにしない）
+      var fl = s.futureLetter;
+      fl.sealed_at = isoOrNull(raw.futureLetter.sealed_at);
+      fl.sealed_trusted_at = fl.sealed_at ? isoOrNull(raw.futureLetter.sealed_trusted_at) : null;
+      var op = fl.sealed_at ? isoOrNull(raw.futureLetter.opened_at) : null;
+      fl.opened_at = op && Date.parse(op) >= unlockTime(fl) ? op : null;
     }
+    if (raw.clock && isoOrNull(raw.clock.maxSeen)) s.clock.maxSeen = raw.clock.maxSeen;
     s.letter = letterOf(raw.letter);
     LETTER_DAYS.forEach(function (d) {
       var r = raw.futureReplies && raw.futureReplies[d];
@@ -321,17 +334,38 @@
   Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && this.state.futureLetter.text.trim()); };
   Store.prototype.isSealed = function () { return !!(this.hasFutureLetter() && this.state.futureLetter.sealed_at); };
   Store.prototype.isOpened = function () { return !!(this.isSealed() && this.state.futureLetter.opened_at); };
-  // Day1：書き終えたら封を閉じる
-  Store.prototype.sealFutureLetter = function () {
+  // 端末の時計が戻されても、封の時刻が早まらないように、見た時刻の最大値を覚える
+  Store.prototype.noteDeviceTime = function () {
+    var t = Date.now(), m = Date.parse(this.state.clock.maxSeen || '');
+    if (isNaN(m) || t > m) this.state.clock.maxSeen = new Date(t).toISOString();
+  };
+  // Day1：書き終えたら封を閉じる。trusted＝サーバー時刻（得られなければ null）
+  Store.prototype.sealFutureLetter = function (trusted) {
     if (!this.hasFutureLetter() || this.isSealed()) return false;
-    this.state.futureLetter.sealed_at = now();
+    this.noteDeviceTime();
+    var dev = Math.max(Date.now(), Date.parse(this.state.clock.maxSeen) || 0);
+    this.state.futureLetter.sealed_at = new Date(dev).toISOString();
+    this.state.futureLetter.sealed_trusted_at = typeof trusted === 'number' ? new Date(trusted).toISOString() : null;
     this.flush();
     return true;
   };
-  // Day7・14・21：初めて開けた日時を残す（一度開けたら、いつでも読み返せる）
-  Store.prototype.openFutureLetter = function () {
-    if (!this.isSealed()) return false;
-    if (!this.state.futureLetter.opened_at) this.state.futureLetter.opened_at = now();
+  // 通信できないまま封をし、そのとき端末の時計が進んでいた場合：封の時刻が「今」より未来になっている。
+  // 本当に封をしたのは今より前なので、基準を今のサーバー時刻に寄せる（早く開くことはない）
+  Store.prototype.rebaseSeal = function (trusted) {
+    var fl = this.state.futureLetter;
+    if (!this.isSealed() || fl.sealed_trusted_at || typeof trusted !== 'number') return;
+    if (Date.parse(fl.sealed_at) > trusted) { fl.sealed_trusted_at = new Date(trusted).toISOString(); this.flush(); }
+  };
+  Store.prototype.unlockAt = function () { return this.isSealed() ? unlockTime(this.state.futureLetter) : Infinity; };
+  // 開けられるか：サーバー時刻が「封の時刻＋7日」を過ぎているときだけ（端末の時計では判断しない）
+  Store.prototype.canOpen = function (trusted) {
+    return this.isSealed() && typeof trusted === 'number' && trusted >= this.unlockAt();
+  };
+  // 開封（一度開けたら、いつでも読み返せる）
+  Store.prototype.openFutureLetter = function (trusted) {
+    if (this.isOpened()) return true;
+    if (!this.canOpen(trusted)) return false;
+    this.state.futureLetter.opened_at = new Date(trusted).toISOString();
     this.state.futureSkipped = {};
     this.flush();
     return true;

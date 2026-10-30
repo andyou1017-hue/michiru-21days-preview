@@ -12,10 +12,12 @@ const EXEC = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const skip = chromium ? false : 'playwright が見つからないため省略';
 
 let server, base, browser;
+let serverNow = null; // null＝本当の時刻。テストで「封から7日後」などを作るときに設定する
+const DAY = 24 * 60 * 60 * 1000;
 
 test.before(async () => {
   if (skip) return;
-  server = createStaticServer(path.join(__dirname, '..', 'app'));
+  server = createStaticServer(path.join(__dirname, '..', 'app'), { now: () => (serverNow === null ? Date.now() : serverNow) });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port + '/';
   const fs = require('fs');
@@ -583,11 +585,25 @@ async function writeAndSeal(page, text) {
   await page.fill('#letter-text', text);
   await page.click('#letter-seal');
   await page.click('#confirm-ok');
-  await page.waitForSelector('.seal-state');
+  await page.waitForFunction(() => /封をしました/.test(document.querySelector('.letter-box').textContent));
   await waitSaved(page);
 }
 
-test('P3 未来からの手紙：Day1 にオーナーの導入・誘導文で書き、封を閉じる。封のあとは中身を出さず、書き換えられない', { skip }, async () => {
+const T1 = '書き終えたら、そっと封をしましょう。未来のあなたからの手紙は、7日後に届きます。書かなくてもかまいません。';
+const T2 = '封をすると、7日間は開けることも、書き直すこともできません。今の言葉を大切に、そのまま残しておきましょう。';
+const T3 = '未来のあなたから、手紙が届いています。';
+const T3b = '今、開いても、もう少し後に開いてもかまいません。';
+const T4 = '一度開いた手紙は、いつでも読み返せます。';
+
+// サーバーの時刻を進めて、画面を読み込み直す（同じ画面の間は、最初に得た時刻からの経過で数えるため）
+async function setServerTime(page, ms) { serverNow = ms; await page.reload(); }
+async function letterState(page) {
+  await page.waitForFunction(() => { const x = document.getElementById('letter-read'); return x && !x.hasAttribute('aria-busy'); });
+  return page.textContent('#letter-read');
+}
+
+test('P3 手紙：Day1 にオーナーの文で書き、封をする（①②）。封のあとは中身を出さず、書き換えられない', { skip }, async () => {
+  serverNow = null;
   const { context, page } = await newPage();
   await consent(page);
   await page.goto(base + '#/day/1/5');
@@ -595,132 +611,236 @@ test('P3 未来からの手紙：Day1 にオーナーの導入・誘導文で書
   await openLetterWriter(page);
   const box = await page.textContent('.letter-box');
   for (const l of INTRO_LINES.concat(GUIDE_LINES)) assert.ok(box.includes(l), '原文がない：' + l);
-  assert.ok(!/21日後の私へ|未来の私へ|未来の自分へ/.test(box), '逆向き（今→未来）の文言が残っている');
-  // 空では封を閉じられない
-  assert.ok(await page.isDisabled('#letter-seal'));
+  assert.ok(box.includes(T1), '①の文');
+  assert.ok(!/21日後の私へ|未来の私へ|未来の自分へ|Day 07 に届/.test(box));
+  assert.ok(await page.isDisabled('#letter-seal'), '空では封をできない');
   await page.fill('#letter-text', '今のあなたへ。\nもう十分に、素晴らしいものを持っているよ。');
-  assert.ok(!(await page.isDisabled('#letter-seal')));
-  // 「やめる」なら封をしない
   await page.click('#letter-seal');
-  assert.match(await page.textContent('#confirm-msg'), /Day 07 まで開けられません/);
+  assert.strictEqual(await page.textContent('#confirm-msg'), T2, '②の文');
   await page.click('#confirm-cancel');
-  assert.ok(await page.isVisible('#letter-text'));
+  assert.ok(await page.isVisible('#letter-text'), '「やめる」なら封をしない');
   await page.click('#letter-seal');
   await page.click('#confirm-ok');
-  await page.waitForSelector('.seal-state');
-  assert.match(await page.textContent('.letter-box'), /封をしました。手紙は Day 07 に届きます/);
+  await page.waitForFunction(() => /封をしました/.test(document.querySelector('.letter-box').textContent));
+  assert.match(await page.textContent('.letter-box'), /未来のあなたからの手紙は、\d+月\d+日 \d+時ごろに届きます/);
   assert.strictEqual(await page.locator('#letter-text').count(), 0);
-  assert.ok(!(await page.textContent('main')).includes('素晴らしいものを持っているよ'), '封のあとは中身を出さない');
+  assert.ok(!(await page.content()).includes('素晴らしいものを持っているよ'), '封のあとは画面のどこにも中身を出さない');
   await waitSaved(page);
-  let s = await stored(page);
+  const s = await stored(page);
   assert.ok(s.futureLetter.sealed_at);
+  assert.ok(s.futureLetter.sealed_trusted_at, 'サーバー時刻を封の基準に残す');
   assert.strictEqual(s.futureLetter.opened_at, null);
-  // 再読み込みしても封をしたまま。手紙の画面でも中身は出ない
-  await page.reload();
-  await page.goto(base + '#/letter');
-  assert.match(await page.textContent('main'), /封をした手紙があります[\s\S]*Day 07 から開けられます/);
-  assert.ok(!(await page.textContent('main')).includes('素晴らしいものを持っているよ'));
-  // Day 05 には届かない
-  await page.goto(base + '#/day/5/5');
-  assert.strictEqual(await page.locator('#letter-read').count(), 0);
   await context.close();
 });
 
-test('P3 未来からの手紙：Day7 で初めて開封。取っておくこともでき、一度開けたらいつでも読み返せる。読んだ日の感じたことを記録', { skip }, async () => {
+test('P3 手紙：封から7日間は、どの画面からも開けない。端末の日付を進めても開かない', { skip }, async () => {
+  serverNow = null;
   const { context, page } = await newPage();
   await consent(page);
-  // 手紙が無い人・封をしていない人には、Day 07 に何も出さない
+  await writeAndSeal(page, '7日間は開かない手紙');
+  // 6日23時間後（サーバー時刻）：Day 7・14・21、手紙の画面、ホームのどこにも開くボタンが無い
+  const sealed = Date.parse((await stored(page)).futureLetter.sealed_trusted_at);
+  await setServerTime(page, sealed + 7 * DAY - 60 * 60 * 1000);
+  for (const d of [7, 14, 21]) {
+    await page.goto(base + '#/day/' + d + '/5');
+    const t = await letterState(page);
+    assert.match(t, /封をしたまま[\s\S]*封をしてから7日後/, 'Day' + d);
+    assert.strictEqual(await page.locator('#letter-open').count(), 0, 'Day' + d + ' に開くボタンがある');
+  }
+  await page.goto(base + '#/letter');
+  assert.match(await letterState(page), /封をしてから7日後/);
+  assert.strictEqual(await page.locator('#letter-open').count(), 0);
+  await page.goto(base + '#/');
+  await page.waitForTimeout(300);
+  assert.strictEqual(await page.locator('.letter-arrived').count(), 0);
+  // 端末の日付を30日進めても（サーバー時刻は変わらない）開かない
+  await page.clock.install({ time: Date.now() + 30 * DAY });
+  await page.reload();
   await page.goto(base + '#/day/7/5');
-  assert.strictEqual(await page.locator('#letter-read').count(), 0);
-  await page.goto(base + '#/day/1/5');
-  await openLetterWriter(page);
-  await page.fill('#letter-text', '書きかけ');
-  await waitSaved(page);
-  await page.goto(base + '#/day/7/5');
-  assert.strictEqual(await page.locator('#letter-read').count(), 0, '封をしていない手紙は届かない');
+  assert.match(await letterState(page), /封をしたまま/);
+  assert.strictEqual(await page.locator('#letter-open').count(), 0);
+  // 画面の部品を書き換えて開封の処理を呼んでも、保存の層で断る
+  const forced = await page.evaluate(() => window.MichiruTestHook ? null : 'no-hook');
+  assert.strictEqual(forced, 'no-hook', 'テスト用の抜け道を作っていない');
+  assert.ok(!(await page.content()).includes('7日間は開かない手紙'));
+  assert.strictEqual((await stored(page)).futureLetter.opened_at, null);
+  await context.close();
+  serverNow = null;
+});
+
+test('P3 手紙：7日たつと届く（③）。開けずに取っておける。開くと④になり、Day 14・21 で同じ手紙を振り返れる', { skip }, async () => {
+  serverNow = null;
+  const { context, page } = await newPage();
+  await consent(page);
   await writeAndSeal(page, '今のあなたへ。\nどんな日でも、ここに戻ってきていいよ。');
-  // Day 07：届いている。封をしたまま、中身は出さない
+  const sealed = Date.parse((await stored(page)).futureLetter.sealed_trusted_at);
+  await setServerTime(page, sealed + 7 * DAY + 60 * 1000);
+  // ホームに届いた知らせ
+  await page.goto(base + '#/');
+  await page.waitForSelector('.letter-arrived');
+  assert.strictEqual((await page.textContent('.letter-arrived')).trim(), '✉ ' + T3);
+  // Day 07：③。開けずに取っておく
   await page.goto(base + '#/day/7/5');
-  assert.strictEqual(await page.textContent('#letter-read-title'), '未来のあなたから、手紙が届いています。');
-  assert.match(await page.textContent('#letter-read'), /封をしたまま/);
+  let t = await letterState(page);
+  assert.ok(t.includes(T3) && t.includes(T3b), '③の文');
   assert.ok(!(await page.isVisible('.letter-quote')));
-  // 読まずに取っておく
   await page.click('#letter-skip');
-  assert.match(await page.textContent('#letter-read'), /読まずに取っておくことにしました/);
+  assert.strictEqual(await page.locator('#letter-skip').count(), 0);
+  assert.ok(await page.isVisible('#letter-open'), '取っておいた後も開ける');
+  assert.strictEqual((await stored(page)).futureLetter.opened_at, null);
+  // Day 14 で開く
+  await page.goto(base + '#/day/14/5');
+  await letterState(page);
+  await page.click('#letter-open');
+  await page.waitForSelector('.letter-quote');
+  assert.match(await page.textContent('.letter-quote'), /ここに戻ってきていいよ/);
+  assert.ok((await page.textContent('#letter-read')).includes(T4), '④の文');
+  await page.fill('#letter-reply', '14日目に感じたこと');
   await waitSaved(page);
   let s = await stored(page);
-  assert.strictEqual(s.futureLetter.opened_at, null);
-  // Day 14 でもまだ封をしたまま届いている
-  await page.goto(base + '#/day/14/5');
-  assert.match(await page.textContent('#letter-read'), /封をしたまま/);
-  // 開封
+  assert.ok(Date.parse(s.futureLetter.opened_at) >= sealed + 7 * DAY);
+  // Day 21：同じ手紙を振り返る（取っておく選択肢は出ない）
+  await page.goto(base + '#/day/21/5');
+  t = await letterState(page);
+  assert.ok(t.includes(T4));
+  assert.strictEqual(await page.locator('#letter-skip').count(), 0);
   await page.click('#letter-open');
-  assert.match(await page.textContent('.letter-quote'), /ここに戻ってきていいよ/);
-  assert.match(await page.textContent('#letter-read'), /開封済み/);
-  assert.match(await page.textContent('label[for="letter-reply"]'), /手紙を読んで、今日のあなたが感じたこと/);
-  await page.fill('#letter-reply', '受け取ったよ。ありがとう');
+  await page.fill('#letter-reply', '21日目に感じたこと');
   await waitSaved(page);
-  s = await stored(page);
-  assert.ok(s.futureLetter.opened_at);
-  assert.strictEqual(s.futureReplies[14].text, '受け取ったよ。ありがとう');
-  // 閉じて、もう一度読める
-  await page.click('#letter-close');
-  await page.click('#letter-open');
-  assert.match(await page.textContent('.letter-quote'), /ここに戻ってきていいよ/);
-  assert.strictEqual(await page.inputValue('#letter-reply'), '受け取ったよ。ありがとう');
-  // 一度開けたら：Day 07・21 でも、取っておく選択肢は出ず「手紙を読む」
-  for (const d of [7, 21]) {
-    await page.goto(base + '#/day/' + d + '/5');
-    assert.strictEqual(await page.textContent('#letter-open'), '手紙を読む', 'Day' + d);
-    assert.strictEqual(await page.locator('#letter-skip').count(), 0);
-  }
-  await page.click('#letter-open');
-  await page.fill('#letter-reply', '21日目の私が感じたこと');
-  await waitSaved(page);
-  // Day 01 では「開封済み」。手紙の画面でいつでも読み返せ、各日の感じたことも並ぶ
-  await page.goto(base + '#/day/1/5');
-  assert.match(await page.textContent('.letter-box'), /開封済みです/);
+  // 一度開いたら、通信できなくても・時刻を確かめられなくても読み返せる
+  await context.setOffline(true);
   await page.goto(base + '#/letter');
-  const t = await page.textContent('main');
-  assert.match(t, /ここに戻ってきていいよ[\s\S]*Day 14[\s\S]*受け取ったよ[\s\S]*Day 21[\s\S]*21日目の私/);
-  assert.ok(!/以前の形式/.test(t));
-  // 開封後に再読み込みしても読める
-  await page.reload();
-  await page.waitForSelector('.letter-quote');
+  await letterState(page);
+  await page.click('#letter-open');
+  assert.match(await page.textContent('.letter-quote'), /ここに戻ってきていいよ/);
+  assert.match(await page.textContent('main'), /Day 14[\s\S]*14日目に感じたこと[\s\S]*Day 21[\s\S]*21日目に感じたこと/);
+  await context.setOffline(false);
+  // Day 01 では④
+  await page.goto(base + '#/day/1/5');
+  assert.ok((await page.textContent('.letter-box')).includes(T4));
   await context.close();
+  serverNow = null;
 });
 
-test('P3 未来からの手紙：封・開封の状態もバックアップ・復元される。封の無い古い保存は書きかけとして扱う', { skip }, async () => {
+test('P3 手紙：通信できないとき・端末の時計を戻して封をしたときも、早く開かない', { skip }, async () => {
+  serverNow = null;
   const { context, page } = await newPage();
   await consent(page);
-  await writeAndSeal(page, '封をした手紙');
+  await writeAndSeal(page, '早く開かない手紙');
+  const sealed = Date.parse((await stored(page)).futureLetter.sealed_trusted_at);
+  // 7日たっていても、時刻を確かめられない（時刻の問い合わせが通信できない）ときは開かない
+  await page.route('**/*clock=*', (route) => route.abort());
+  serverNow = sealed + 8 * DAY;
+  await page.reload();
+  for (const d of [7, 14]) {
+    await page.goto(base + '#/day/' + d + '/5');
+    const t = await letterState(page);
+    assert.match(t, /通信できるときに確かめます/, 'Day' + d);
+    assert.strictEqual(await page.locator('#letter-open').count(), 0);
+  }
+  // 端末の日付を進めても同じ
+  await page.clock.install({ time: Date.now() + 30 * DAY });
+  await page.reload();
+  await page.goto(base + '#/day/7/5');
+  assert.match(await letterState(page), /通信できるときに確かめます/);
+  assert.strictEqual((await stored(page)).futureLetter.opened_at, null);
+  // 通信が戻れば、7日たっているので届く
+  await page.unroute('**/*clock=*');
+  await page.reload();
+  await page.goto(base + '#/day/7/5');
+  assert.ok((await letterState(page)).includes(T3));
+  await context.close();
+
+  // 端末の時計を30日戻した状態で、通信できないまま封をした：端末の時刻の最大値を使うので、封の時刻は戻らない
+  serverNow = null;
+  const b = await newPage();
+  await consent(b.page);
+  await b.page.goto(base + '#/');
+  await b.page.waitForTimeout(200);
+  const maxSeen = Date.parse((await stored(b.page)).clock.maxSeen);
+  await b.page.clock.install({ time: Date.now() - 30 * DAY });
+  await b.page.reload();
+  await b.context.setOffline(true);
+  await b.page.goto(base + '#/day/1/5');
+  await openLetterWriter(b.page);
+  await b.page.fill('#letter-text', '時計を戻して書いた手紙');
+  await b.page.click('#letter-seal');
+  await b.page.click('#confirm-ok');
+  await b.page.waitForFunction(() => /封をしました/.test(document.querySelector('.letter-box').textContent));
+  await waitSaved(b.page);
+  const s = await stored(b.page);
+  assert.strictEqual(s.futureLetter.sealed_trusted_at, null, '通信できないときはサーバー時刻なし');
+  assert.ok(Date.parse(s.futureLetter.sealed_at) >= maxSeen, '封の時刻が戻っていない');
+  await b.context.setOffline(false);
+  await b.page.clock.setSystemTime(Date.now() + 30 * DAY);
+  // 本当の時刻で6日後：まだ開かない
+  await setServerTime(b.page, Date.parse(s.futureLetter.sealed_at) + 6 * DAY);
+  await b.page.goto(base + '#/day/7/5');
+  assert.match(await letterState(b.page), /封をしてから7日後/);
+  await b.context.close();
+  serverNow = null;
+});
+
+test('P3 手紙：バックアップの復元・壊れた保存で、意図せず開封済みにならない', { skip }, async () => {
+  serverNow = null;
+  const { context, page } = await newPage();
+  await consent(page);
+  await writeAndSeal(page, '守られる手紙');
   await page.goto(base + '#/settings');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export')]);
   const data = JSON.parse(require('fs').readFileSync(await dl.path(), 'utf8'));
-  assert.ok(data.futureLetter.sealed_at);
-  assert.strictEqual(data.futureLetter.opened_at, null);
-  await page.click('#delete-all');
-  await page.click('#confirm-ok');
-  await page.waitForSelector('#agree');
-  await page.goto(base + '#/settings');
-  await page.setInputFiles('#import-file', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
-  await page.click('#confirm-ok');
-  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  assert.ok(data.futureLetter.sealed_trusted_at);
+  const sealed = Date.parse(data.futureLetter.sealed_trusted_at);
+  async function restore(obj) {
+    await page.goto(base + '#/settings');
+    await page.setInputFiles('#import-file', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(obj)) });
+    await page.click('#confirm-ok');
+    await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+    return stored(page);
+  }
+  const cases = [
+    ['封から7日未満の開封日時', Object.assign({}, data.futureLetter, { opened_at: new Date(sealed + 1000).toISOString() })],
+    ['開封日時が壊れている', Object.assign({}, data.futureLetter, { opened_at: 'きのう' })],
+    ['開封日時が数値', Object.assign({}, data.futureLetter, { opened_at: 12345 })],
+    ['封の日時が壊れている', Object.assign({}, data.futureLetter, { sealed_at: 'abc', sealed_trusted_at: 'abc', opened_at: new Date(sealed + 8 * DAY).toISOString() })],
+    ['封の無い手紙に開封日時だけ', { text: '守られる手紙', written_at: data.futureLetter.written_at, opened_at: new Date(sealed + 8 * DAY).toISOString() }],
+  ];
+  for (const [name, fl] of cases) {
+    const s = await restore(Object.assign({}, data, { futureLetter: fl }));
+    assert.strictEqual(s.futureLetter.opened_at, null, name);
+    await page.goto(base + '#/letter');
+    await page.waitForTimeout(300);
+    assert.ok(!(await page.content()).includes('守られる手紙') || name.includes('封の'), name + '：中身が見える');
+  }
+  // 封の時刻が未来（端末の時計が進んでいた等）：その分、長く封をしたまま
+  let s = await restore(Object.assign({}, data, { futureLetter: Object.assign({}, data.futureLetter, { sealed_trusted_at: new Date(sealed + 30 * DAY).toISOString(), opened_at: null }) }));
+  await setServerTime(page, sealed + 8 * DAY);
   await page.goto(base + '#/day/7/5');
-  assert.match(await page.textContent('#letter-read'), /封をしたまま/);
-  // 開封の日時が無い（または封の無い）不正な組み合わせ：封の無い手紙に開封日時だけあっても開封済みにしない
-  const odd = Object.assign({}, data, { futureLetter: { text: '古い試作の手紙', written_at: data.futureLetter.written_at, opened_at: '2026-10-30T00:00:00.000Z' } });
-  await page.goto(base + '#/settings');
-  await page.setInputFiles('#import-file', { name: 'odd.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(odd)) });
-  await page.click('#confirm-ok');
-  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
-  const s = await stored(page);
-  assert.strictEqual(s.futureLetter.sealed_at, null);
-  assert.strictEqual(s.futureLetter.opened_at, null);
-  await page.goto(base + '#/day/7/5');
-  assert.strictEqual(await page.locator('#letter-read').count(), 0);
-  await page.goto(base + '#/day/1/5');
-  assert.strictEqual(await page.inputValue('#letter-text'), '古い試作の手紙');
+  assert.match(await letterState(page), /封をしてから7日後/);
+  // 正しく開封された記録の復元は、開封済みのまま
+  serverNow = null;
+  await page.reload();
+  s = await restore(Object.assign({}, data, { futureLetter: Object.assign({}, data.futureLetter, { opened_at: new Date(sealed + 7 * DAY + 5000).toISOString() }) }));
+  assert.ok(s.futureLetter.opened_at);
+  await page.goto(base + '#/letter');
+  await letterState(page);
+  assert.ok((await page.textContent('#letter-read')).includes(T4));
+  // 端末に保存された記録そのものが壊れていた場合も、開封済みにならない
+  // （画面を閉じるときの保存で上書きされないよう、画面を閉じてから、アプリが動く前に保存を書き換える）
+  await page.close();
+  await context.addInitScript((sealedIso) => {
+    if (sessionStorage.getItem('tampered')) return;
+    sessionStorage.setItem('tampered', '1');
+    const st = JSON.parse(localStorage.getItem('michiru21.v1'));
+    st.futureLetter.opened_at = new Date(Date.parse(sealedIso) + 1000).toISOString();
+    localStorage.setItem('michiru21.v1', JSON.stringify(st));
+  }, data.futureLetter.sealed_trusted_at);
+  const p2 = await context.newPage();
+  await p2.goto(base + '#/letter');
+  await letterState(p2);
+  assert.strictEqual(await p2.locator('.letter-quote').count(), 0);
+  assert.ok(!(await p2.textContent('#letter-read')).includes(T4));
+  assert.match(await p2.textContent('#letter-read'), /封をしてから7日後/);
   await context.close();
 });
 
@@ -915,3 +1035,47 @@ test('P3 未来からの手紙：書く前に33秒または感謝の瞑想で心
   assert.ok(await page.isVisible('#letter-text'));
   await context.close();
 });
+
+test('P3 手紙：通信できないまま、端末の時計が進んだ状態で封をしても、通信が戻れば今のサーバー時刻から7日', { skip }, async () => {
+  serverNow = null;
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.clock.install({ time: Date.now() + 60 * DAY }); // 端末の時計が60日進んでいる
+  await page.reload();
+  await page.route('**/*clock=*', (route) => route.abort()); // 時刻を確かめられない
+  await writeAndSeal(page, '時計が進んでいた手紙');
+  let s = await stored(page);
+  assert.strictEqual(s.futureLetter.sealed_trusted_at, null);
+  await page.unroute('**/*clock=*');
+  const real = Date.now();
+  serverNow = real;
+  await page.reload();
+  await page.goto(base + '#/day/7/5');
+  assert.match(await letterState(page), /封をしてから7日後/);
+  await waitSaved(page);
+  s = await stored(page);
+  const basis = Date.parse(s.futureLetter.sealed_trusted_at);
+  assert.ok(Math.abs(basis - real) < 60 * 1000, '基準が今のサーバー時刻に寄った');
+  // 7日後に届く（60日待たなくてよい）。7日より前は届かない
+  await setServerTime(page, basis + 7 * DAY - 1000);
+  await page.goto(base + '#/day/7/5');
+  assert.match(await letterState(page), /封をしてから7日後/);
+  await setServerTime(page, basis + 7 * DAY + 1000);
+  await page.goto(base + '#/day/7/5');
+  assert.ok((await letterState(page)).includes(T3));
+  await context.close();
+  serverNow = null;
+});
+
+test('P3 手紙：書く前の「未来の自分の心を体感する」誘導が、瞑想のあとに出る', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box summary');
+  assert.ok(!(await page.isVisible('.future-feel')));
+  await page.click('#prep-thanks');
+  await page.click('#prep-stop');
+  assert.match(await page.textContent('.future-feel'), /21日間を歩き終えたあなたは、どんな表情をしていますか。[\s\S]*その心のまま、今のあなたを見てみましょう。/);
+  await context.close();
+});
+

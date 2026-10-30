@@ -6,8 +6,10 @@ const path = require('path');
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-function createStaticServer(root) {
+// opts.now：応答の Date に使う時刻（テストで「7日後」などを作るため）
+function createStaticServer(root, opts = {}) {
   return http.createServer((req, res) => {
+    if (opts.now) res.setHeader('Date', new Date(opts.now()).toUTCString());
     const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     let file = path.normalize(path.join(root, urlPath === '/' ? 'index.html' : urlPath));
     if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
