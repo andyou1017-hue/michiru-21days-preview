@@ -448,7 +448,7 @@
   function futureGuidanceHtml() {
     var g = window.MichiruFutureGuidance;
     if (!g) return '';
-    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">最高の未来を感じる音声誘導</h4>' +
+    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">33秒瞑想（33秒×3回）</h4>' +
       '<p class="muted">端末の日本語読み上げを使います。声は端末によって異なります。途中に33秒の無音が3回あります。</p>' +
       '<p class="muted">座って安全に過ごせる場所で使ってください。目を開けたままでも、途中でやめてもかまいません。</p>' +
       '<label for="guidance-voice">読み上げの声</label><select id="guidance-voice"><option value="">端末の日本語音声</option></select>' +
@@ -494,7 +494,7 @@
       var text = s.state === 'playing' ? (section ? section.title : '') + (s.phase === 'silence' ? '：静かに感じる時間です。' : '：読み上げています。') :
         s.state === 'paused' ? '一時停止中です。読み上げ中の再開は、その段階の最初からになります。' :
         s.state === 'error' ? '読み上げを続けられませんでした。再開するか、原稿を読みながら進められます。' :
-        s.state === 'done' ? '音声誘導が終わりました。感じたことを、書き残してみましょう。' :
+        s.state === 'done' ? '33秒瞑想が終わりました。感じたことを、書き残してみましょう。' :
         s.state === 'unsupported' ? 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。' : '音声は停止しています。';
       if (status.textContent !== text) status.textContent = text;
       seconds.textContent = s.phase === 'silence' && s.remaining !== undefined ? '無音の時間：あと' + s.remaining + '秒' : '';
