@@ -36,11 +36,17 @@ async function fixture(t) {
     assert.equal(res.status, 200);
     return res.headers.get('set-cookie').split(';')[0];
   }
-  return { post, get, enroll, advance: ms => { clock += ms; } };
+  async function login(email) {
+    const res = await post('/api/login', { email, password: 'safe-test-password-123' });
+    assert.equal(res.status, 200);
+    return res.headers.get('set-cookie').split(';')[0];
+  }
+  return { post, get, enroll, login, advance: ms => { clock += ms; } };
 }
 
 test('手紙はサーバーで封印し、7日未満は本文を返さず、7日後に初めて開く', async t => {
-  const f = await fixture(t), a = await f.enroll('letter-a@example.invalid');
+  const f = await fixture(t);
+  let a = await f.enroll('letter-a@example.invalid');
   const text = '21日後の私から、今日の私へ。';
   assert.equal((await f.post('/api/future-letter/seal', { text })).status, 401);
   assert.equal((await f.post('/api/future-letter/seal', { text }, a)).status, 200);
@@ -52,6 +58,9 @@ test('手紙はサーバーで封印し、7日未満は本文を返さず、7日
   assert.equal(boot.includes(text), false, 'bootstrap must never include a sealed letter');
   assert.equal((await f.post('/api/future-letter/open', {}, a)).status, 423);
   f.advance(WEEK - 1);
+  // Sessions expire after 24h. Re-authenticate rather than weakening session expiry.
+  assert.equal((await f.get('/api/future-letter/status', a)).status, 401);
+  a = await f.login('letter-a@example.invalid');
   assert.equal((await f.post('/api/future-letter/open', {}, a)).status, 423);
   f.advance(1);
   const opened = await f.post('/api/future-letter/open', {}, a);
@@ -62,7 +71,8 @@ test('手紙はサーバーで封印し、7日未満は本文を返さず、7日
 });
 
 test('封印後の書き直し拒否・利用者間分離・アカウント削除で本文消去', async t => {
-  const f = await fixture(t), a = await f.enroll('letter-b@example.invalid');
+  const f = await fixture(t);
+  let a = await f.enroll('letter-b@example.invalid');
   const b = await f.enroll('letter-c@example.invalid');
   assert.equal((await f.post('/api/future-letter/seal', { text: '最初の手紙' }, a)).status, 200);
   assert.equal((await f.post('/api/future-letter/seal', { text: '改ざん' }, a)).status, 409);
@@ -71,6 +81,8 @@ test('封印後の書き直し拒否・利用者間分離・アカウント削�
   assert.equal((await f.post('/api/future-letter/seal', { text: '' }, b)).status, 400);
   assert.equal((await f.post('/api/future-letter/seal', { text: 'x'.repeat(4001) }, b)).status, 400);
   f.advance(WEEK);
+  assert.equal((await f.get('/api/future-letter/status', a)).status, 401);
+  a = await f.login('letter-b@example.invalid');
   assert.equal((await (await f.post('/api/future-letter/open', {}, a)).json()).text, '最初の手紙');
   assert.equal((await f.post('/api/delete-account', {}, a)).status, 200);
   assert.equal((await f.get('/api/future-letter/status', a)).status, 401);
