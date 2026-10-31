@@ -8,11 +8,15 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 
 // opts.now：応答の Date に使う時刻（テストで「7日後」などを作るため）
 function createStaticServer(root, opts = {}) {
+  root = path.resolve(root);
   return http.createServer((req, res) => {
     if (opts.now) res.setHeader('Date', new Date(opts.now()).toUTCString());
-    const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let urlPath;
+    try { urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname); }
+    catch (_) { res.writeHead(400); return res.end('bad request'); }
+    if (urlPath.includes('\u0000')) { res.writeHead(400); return res.end('bad request'); }
     let file = path.normalize(path.join(root, urlPath === '/' ? 'index.html' : urlPath));
-    if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
+    if (file !== root && !file.startsWith(root + path.sep)) { res.writeHead(403); return res.end(); }
     fs.readFile(file, (err, data) => {
       if (err) { res.writeHead(404); return res.end('not found'); }
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
@@ -29,3 +33,4 @@ if (require.main === module) {
 }
 
 module.exports = { createStaticServer };
+

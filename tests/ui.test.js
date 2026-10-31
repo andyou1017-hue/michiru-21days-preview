@@ -52,6 +52,15 @@ function stored(page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('michiru21.v1')));
 }
 
+test('本番設定で認証APIが欠けた場合、試作教材へフォールバックしない', { skip }, async () => {
+  const { context, page } = await newPage();
+  await page.addInitScript(() => { window.MICHIRU_CONFIG = { server: true }; });
+  await page.goto(base);
+  assert.match(await page.textContent('#view'), /認証を読み込めませんでした/);
+  assert.equal(await page.locator('#start, .day-list, textarea').count(), 0);
+  await context.close();
+});
+
 test('S01 はじめに：読んだ確認をしないと始められない', { skip }, async () => {
   const { context, page, errors } = await newPage();
   await page.goto(base);

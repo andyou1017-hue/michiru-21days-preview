@@ -995,7 +995,11 @@
   // ---------- 起動 ----------
   function boot() {
     // 本番：server/ が window.MICHIRU_CONFIG.server = true を渡す
-    if (window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.server && window.MichiruApi) {
+    if (window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.server) {
+      if (!window.MichiruApi) {
+        view.textContent = '認証を読み込めませんでした。通信を確認して、もう一度開いてください。';
+        return;
+      }
       api = window.MichiruApi;
       api.boot(view).then(function (res) {
         if (!res) return; // ログイン画面・購入案内を表示中
@@ -1012,3 +1016,4 @@
   window.MichiruApp = { boot: boot };
   boot();
 })();
+
