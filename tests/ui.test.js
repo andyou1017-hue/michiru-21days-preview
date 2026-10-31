@@ -947,6 +947,7 @@ test('P3 以前の試作で書いた「21日後の私へ」の手紙は、消さ
   assert.strictEqual(await page.locator('#letter-read').count(), 0);
   // 手紙の画面では、以前の形式として別枠（折りたたみ）で読める
   await page.goto(base + '#/letter');
+  await page.waitForSelector('.letter-box.legacy');
   assert.match(await page.textContent('main'), /手紙はまだありません/);
   assert.match(await page.textContent('.letter-box.legacy summary'), /以前の形式で書いた手紙/);
   await page.click('.letter-box.legacy summary');
