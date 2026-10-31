@@ -162,7 +162,9 @@
         '<p class="eyebrow">DAY ' + pad(door) + ' / 21</p>' +
         '<div class="door-flower">' + flower(door, 132) + '<p class="flower-name">今日の花：' + esc(flowerName(door)) + '</p></div>' +
         '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
-        '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
+        (door === 1 && done.length === 0
+          ? '<p>ここから、あなたの21日間が始まります。</p>'
+          : '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>') +
         '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(door).title) + '</p>' +
         '<a class="btn primary" id="door-open" href="#/day/' + door + '/1" aria-label="今日の扉をひらく（Day ' + pad(door) + '「' + esc(dayOf(door).title) + '」）">今日の扉をひらく</a>' +
         '<p class="door-time">目安 10〜15分。できるところまでで大丈夫です。</p>' +
