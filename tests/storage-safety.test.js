@@ -19,6 +19,14 @@ function setup(remote, initial) {
   return { store, fail: v => { fail = v; }, values };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test('最後の入力と発見は、タイマーや終了イベントを待たず端末へ保存される', () => {
+  const { store, values } = setup();
+  store.updateEntry(1, { answers: ['入力直後の記録'] });
+  assert.equal(JSON.parse(values.get('michiru21.v1')).entries[1].answers[0], '入力直後の記録');
+  store.addDiscovery(1, '最後の発見');
+  assert.equal(JSON.parse(values.get('michiru21.v1')).discoveries[0].text, '最後の発見');
+  clearTimeout(store.timer);
+});
 test('壊れたJSON・未対応形式は起動と保存を繰り返しても上書きしない', () => {
   for (const original of ['{"entries":', '', 'null', 'false', '{"app":"michiru-21days","schema":2,"futureLetter":{"text":"未来版"}}']) {
     const { store, values } = setup(null, original);

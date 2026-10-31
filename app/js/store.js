@@ -214,7 +214,7 @@
       e.answers.some(function (a) { return a && a.length; }));
   };
 
-  // 入力のたびに呼ぶ。少し待ってからまとめて保存する（打鍵ごとの書き込みを避ける）。
+  // 入力のたびに呼ぶ。端末内は直ちに保存し、送信だけをまとめる。
   Store.prototype.updateEntry = function (day, patch) {
     var e = this.state.entries[day] || emptyEntry(day);
     for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) e[k] = patch[k];
@@ -234,6 +234,9 @@
     var self = this;
     if (this.detached) return;
     this.setStatus('saving');
+    // Safariでは画面を閉じるときの通知が届かない場合があるため、最後の入力をタイマーに委ねない。
+    if (this.recoveryRequired) this.setStatus('recovery');
+    else if (!this.backend.write(this.state)) this.setStatus(this.localStatus(false));
     clearTimeout(this.timer);
     this.timer = setTimeout(function () { self.flush(); }, 400);
   };
