@@ -31,7 +31,8 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     CREATE TABLE IF NOT EXISTS invites (hash TEXT PRIMARY KEY, email TEXT NOT NULL, expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS entries (account TEXT NOT NULL, day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 21), payload TEXT NOT NULL, PRIMARY KEY(account, day));`);
   const cookieName = development ? 'michiru_session' : '__Host-michiru_session';
   const cookie = (token, age) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${development ? '' : '; Secure'}`;
   function createInvite(email, ttl = 72 * 60 * 60 * 1000) {
@@ -78,6 +79,30 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error();
       return value;
     } catch (_) { throw Object.assign(Error(), { status: 400 }); }
+  }
+  // First stage of account-scoped server persistence. Client opt-in/sync is intentionally
+  // not enabled until the privacy notice, conflict rules, and full-record scope are reviewed.
+  function validEntry(day, value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || value.day_number !== day) return null;
+    const mood = x => x === null || (Number.isInteger(x) && x >= 0 && x <= 10);
+    const timestamp = x => x === null || (typeof x === 'string' && !Number.isNaN(Date.parse(x)) && x.length <= 40);
+    if (!mood(value.mood_am) || !mood(value.mood_pm) ||
+        !Array.isArray(value.answers) || value.answers.length > 10 ||
+        !value.answers.every(x => typeof x === 'string' && x.length <= 4000) ||
+        typeof value.action_text !== 'string' || value.action_text.length > 4000 ||
+        typeof value.reflection !== 'string' || value.reflection.length > 4000 ||
+        ![null, 'done', 'skipped'].includes(value.action_status) ||
+        !timestamp(value.updated_at) || !timestamp(value.completed_at)) return null;
+    return { day_number: day, mood_am: value.mood_am, mood_pm: value.mood_pm,
+      answers: value.answers, action_text: value.action_text, action_status: value.action_status,
+      reflection: value.reflection, updated_at: value.updated_at, completed_at: value.completed_at };
+  }
+  function savedEntries(accountId) {
+    const result = {};
+    for (const row of db.prepare('SELECT day,payload FROM entries WHERE account=? ORDER BY day').all(accountId)) {
+      result[row.day] = JSON.parse(row.payload);
+    }
+    return result;
   }
   function serve(res, filename, type) {
     res.writeHead(200, { 'Content-Type': type });
@@ -144,10 +169,38 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         return send(res, 200, { ok: true });
       }
       if (req.method === 'POST' && pathname === '/api/delete-account') {
-        revoke(account.email); res.setHeader('Set-Cookie', cookie('', 0));
+        // Unlike administrator suspension, user-requested deletion removes credentials and records.
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+          db.prepare('DELETE FROM sessions WHERE account=?').run(account.id);
+          db.prepare('DELETE FROM accounts WHERE id=?').run(account.id);
+          db.prepare('DELETE FROM invites WHERE email=?').run(account.email);
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        res.setHeader('Set-Cookie', cookie('', 0));
         return send(res, 200, { ok: true });
       }
-      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: {} });
+      if (req.method === 'POST' && pathname === '/api/entry') {
+        const input = await body(req), day = input.day;
+        if (!Number.isInteger(day) || day < 1 || day > 21) return send(res, 400, { error: '日付が不正です。' });
+        const entry = validEntry(day, input.entry);
+        if (!entry) return send(res, 400, { error: '記録の形式が不正です。' });
+        db.prepare('INSERT INTO entries(account,day,payload) VALUES(?,?,?) ON CONFLICT(account,day) DO UPDATE SET payload=excluded.payload')
+          .run(account.id, day, JSON.stringify(entry));
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && pathname === '/api/entry/delete') {
+        const input = await body(req), day = input.day;
+        if (!Number.isInteger(day) || day < 1 || day > 21) return send(res, 400, { error: '日付が不正です。' });
+        db.prepare('DELETE FROM entries WHERE account=? AND day=?').run(account.id, day);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && pathname === '/api/entries/delete-all') {
+        db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: savedEntries(account.id) });
       if (req.method !== 'GET') return send(res, 405, { error: '許可されていない操作です。' });
       if (pathname === '/') {
         const html = fs.readFileSync(path.join(appRoot, 'index.html'), 'utf8')
