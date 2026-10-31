@@ -32,7 +32,8 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS entries (account TEXT NOT NULL, day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 21), payload TEXT NOT NULL, PRIMARY KEY(account, day));`);
+    CREATE TABLE IF NOT EXISTS entries (account TEXT NOT NULL, day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 21), payload TEXT NOT NULL, PRIMARY KEY(account, day));
+    CREATE TABLE IF NOT EXISTS future_letters (account TEXT PRIMARY KEY, body TEXT NOT NULL, sealed_at INTEGER NOT NULL, opened_at INTEGER);`);
   const cookieName = development ? 'michiru_session' : '__Host-michiru_session';
   const cookie = (token, age) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${development ? '' : '; Secure'}`;
   function createInvite(email, ttl = 72 * 60 * 60 * 1000) {
@@ -173,6 +174,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         db.exec('BEGIN IMMEDIATE');
         try {
           db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+          db.prepare('DELETE FROM future_letters WHERE account=?').run(account.id);
           db.prepare('DELETE FROM sessions WHERE account=?').run(account.id);
           db.prepare('DELETE FROM accounts WHERE id=?').run(account.id);
           db.prepare('DELETE FROM invites WHERE email=?').run(account.email);
@@ -180,6 +182,34 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         } catch (error) { db.exec('ROLLBACK'); throw error; }
         res.setHeader('Set-Cookie', cookie('', 0));
         return send(res, 200, { ok: true });
+      }
+      // Future letters are stored server-side: the body never appears in bootstrap or status.
+      // Device clocks and client-provided timestamps cannot shorten the seven-day wait.
+      if (req.method === 'POST' && pathname === '/api/future-letter/seal') {
+        const input = await body(req);
+        if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 4000) {
+          return send(res, 400, { error: '手紙の文章を確認してください。' });
+        }
+        const sealedAt = now();
+        const changed = db.prepare('INSERT OR IGNORE INTO future_letters(account,body,sealed_at,opened_at) VALUES(?,?,?,NULL)')
+          .run(account.id, input.text, sealedAt);
+        if (changed.changes !== 1) return send(res, 409, { error: 'この手紙はすでに封を閉じています。' });
+        return send(res, 200, { ok: true, sealedAt: new Date(sealedAt).toISOString(), unlockAt: new Date(sealedAt + 7 * 86400000).toISOString() });
+      }
+      if (req.method === 'GET' && pathname === '/api/future-letter/status') {
+        const letter = db.prepare('SELECT sealed_at,opened_at FROM future_letters WHERE account=?').get(account.id);
+        if (!letter) return send(res, 200, { sealed: false });
+        return send(res, 200, { sealed: true, sealedAt: new Date(letter.sealed_at).toISOString(),
+          unlockAt: new Date(letter.sealed_at + 7 * 86400000).toISOString(),
+          available: now() >= letter.sealed_at + 7 * 86400000, opened: letter.opened_at !== null });
+      }
+      if (req.method === 'POST' && pathname === '/api/future-letter/open') {
+        const letter = db.prepare('SELECT body,sealed_at,opened_at FROM future_letters WHERE account=?').get(account.id);
+        if (!letter) return send(res, 404, { error: '封をした手紙がありません。' });
+        if (now() < letter.sealed_at + 7 * 86400000) return send(res, 423, { error: '手紙はまだ開けられません。' });
+        const openedAt = letter.opened_at === null ? now() : letter.opened_at;
+        if (letter.opened_at === null) db.prepare('UPDATE future_letters SET opened_at=? WHERE account=? AND opened_at IS NULL').run(openedAt, account.id);
+        return send(res, 200, { text: letter.body, openedAt: new Date(openedAt).toISOString() });
       }
       if (req.method === 'POST' && pathname === '/api/entry') {
         const input = await body(req), day = input.day;
