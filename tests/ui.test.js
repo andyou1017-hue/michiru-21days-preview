@@ -655,7 +655,10 @@ test('P1 今日の扉：開くと前回の日へ。完了した日のあとは�
   // 21日すべて完了すると、扉は「おわりに」へ
   for (let n = 1; n <= 21; n++) {
     await page.goto(base + '#/day/' + n + '/5');
-    if (await page.isVisible('#complete')) await page.click('#complete');
+    // WebKit の画面描画前に isVisible() が false になる競合を防ぐ。
+    // Day 03 はこのテストの前半で完了済みなので、完了画面も待機対象にする。
+    await page.waitForFunction(() => document.querySelector('#complete') || document.querySelector('.done-mark') || document.querySelector('.closing'));
+    if (await page.locator('#complete').isVisible()) await page.click('#complete');
     await page.waitForSelector(n === 21 ? '.closing' : '.done-mark'); // Day 21 は完了すると「おわりに」へ進む
   }
   await page.goto(base + '#/');
