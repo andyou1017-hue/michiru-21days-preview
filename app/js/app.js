@@ -16,6 +16,7 @@
     saved: '保存しました',
     saving: '保存中…',
     memory: 'この端末に保存できません（画面を閉じると消えます）',
+    error: '保存できませんでした。画面を閉じる前に「設定」からファイルに保存してください',
     offline: '端末には保存済み。通信が戻ったら送信します'
   };
 
@@ -61,9 +62,15 @@
   }
   function moodText(v) { return v === null || v === undefined ? '未記録' : String(v); }
 
+  function pauseNote(st) {
+    return st === 'error' || st === 'memory' ? '（いまは端末に保存できていません。右上の表示をご確認ください）'
+      : '（ここまでの記録は、この端末に保存されます。いつでも続きから再開できます）';
+  }
   function showStatus(s) {
     statusEl.textContent = STATUS_TEXT[s] || '';
     statusEl.setAttribute('data-state', s);
+    var note = document.getElementById('pause-note');
+    if (note && s !== 'saving') note.textContent = pauseNote(s);
   }
 
   // ---------- 画面：はじめに（S01） ----------
@@ -177,7 +184,7 @@
     var prev = step > 1 ? '<a class="btn" href="#/day/' + n + '/' + (step - 1) + '">← 戻る</a>' : '<a class="btn" href="#/">← 一覧</a>';
     var next = step < 5 ? '<a class="btn primary" href="#/day/' + n + '/' + (step + 1) + '" id="next">次へ →</a>' : '';
     return '<nav class="step-nav" aria-label="この日の移動">' + prev + next + '</nav>' +
-      '<p class="pause-link"><a href="#/" id="pause">今日はここまでにする</a><span class="muted">（記録は保存されています。いつでも続きから再開できます）</span></p>';
+      '<p class="pause-link"><a href="#/" id="pause">今日はここまでにする</a><span class="muted" id="pause-note">' + pauseNote(store.status) + '</span></p>';
   }
 
   function stepHeader(d, step) {
@@ -255,7 +262,7 @@
         '<a class="btn" href="#/day/' + n + '/3" id="t-skip">とばして次へ</a>' +
         '</div></div>';
     } else if (step === 3) {
-      body = '<div class="story"><p>' + esc(d.intro) + '</p></div>' +
+      body = miniGuideHtml(n) + '<div class="story"><p>' + esc(d.intro) + '</p></div>' +
         '<p class="muted">書ける分だけで大丈夫です。空欄のままでも先へ進めます。</p>' +
         d.prompts.map(function (p, i) {
           return '<div class="field"><label for="ans-' + i + '">' + esc(p) + '</label>' +
@@ -449,7 +456,8 @@
       '<label for="letter-text" class="sr-only">未来のあなたから、今のあなたへの手紙</label>' +
       '<textarea id="letter-text" rows="7" maxlength="4000">' + esc(l ? l.text : '') + '</textarea>' +
       '<p class="muted">' + esc(LETTER_BEFORE_SEAL) + '</p>' +
-      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>封をする</button></p></div></details>';
+      '<p><button type="button" class="btn primary" id="letter-seal"' + (l && l.text.trim() ? '' : ' disabled') + '>封をする</button></p>' +
+      '<p id="seal-msg" class="warn-msg" role="alert"></p></div></details>';
   }
   var letterPrepDone = false; // この画面で瞑想を終えたか（保存はしない）
 
@@ -514,7 +522,12 @@
       }).then(function (r) {
         if (!r) return;
         store.setFutureLetter(t.value);
-        store.sealFutureLetter(r.now);
+        if (!store.sealFutureLetter(r.now)) {
+          seal.disabled = false;
+          var m = document.getElementById('seal-msg');
+          if (m) m.textContent = '端末に保存できなかったため、封をしていません。容量などを確かめて、もう一度お試しください。';
+          return;
+        }
         var box = document.querySelector('.letter-box');
         box.outerHTML = letterWriteHtml();
         var st = document.querySelector('.seal-state');
@@ -605,6 +618,7 @@
       window.MichiruClock.trustedNow().then(function (t) {
         if (!store.openFutureLetter(t)) {
           sec.innerHTML = letterStateHtml(letterStatus(t), day);
+          if (store.canOpen(t)) sec.insertAdjacentHTML('beforeend', '<p class="warn-msg" role="alert">端末に保存できなかったため、まだ開封していません。もう一度お試しください。</p>');
           bindLetterRead(day, t);
           return;
         }
@@ -656,6 +670,15 @@
       }).join('') + '</dl>';
     }
     focusHeading();
+  }
+
+  // ワークの前の「今日の小さな理由」（2〜3文）。読まずにすぐワークに進めるよう、折りたためる
+  function miniGuideHtml(n) {
+    var g = C.mini_guides;
+    var t = g && g.days && g.days[n];
+    if (!t) return '';
+    return '<details class="mini-guide" open><summary>' + esc(g.label || '今日の小さな理由') + '</summary><p>' + esc(t) + '</p>' +
+      (g.status === 'draft' ? '<p class="draft-mark">（確認中の文章です）</p>' : '') + '</details>';
   }
 
   function radio(name, value, label, current) {
@@ -764,7 +787,7 @@
     document.getElementById('del-day').addEventListener('click', function () {
       askConfirm('Day ' + pad(n) + ' の記録を削除します。元に戻せません。（「私の発見」に残した言葉は消えません）', '削除する').then(function (ok) {
         if (!ok) return;
-        store.deleteDay(n);
+        if (!store.deleteDay(n)) return; // 保存できなかった（右上に表示）
         go('#/records');
       });
     });
@@ -877,7 +900,7 @@
     });
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
-        if (ok) store.deleteAll().then(function () { go('#/intro'); });
+        if (ok) store.deleteAll().then(function (done) { if (done !== false) go('#/intro'); });
       });
     });
     bindAccount();

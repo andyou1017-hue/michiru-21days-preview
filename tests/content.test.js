@@ -65,3 +65,27 @@ test('外部への送信先（分析ツール等）を含めない（T19）', ()
   assert.ok(!/https?:\/\/(?!127\.0\.0\.1)/.test(appText.replace(/<!--[\s\S]*?-->/g, '')), '外部URLがある');
   assert.ok(!/gtag|google-analytics|googletagmanager|sendBeacon/.test(appText));
 });
+
+test('EXPL-04 正式原稿（33秒の誘導を含む）は承認なしに変わっていない', () => {
+  // v0.8（2026-10-30）の内容の指紋。オーナーが原稿の変更を承認したときだけ、この値を更新する
+  const APPROVED_V08 = 'a1bc3f8ebd66a71694f72e884d60e8aeb5cab163b1436cf97a402d9587d43787';
+  const h = require('crypto').createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'content', 'days.yellow.json'))).digest('hex');
+  assert.strictEqual(h, APPROVED_V08);
+});
+
+test('ミニ解説（今日の小さな理由）は21日分あり、正式原稿とは別のファイルで草案として管理', () => {
+  const g = JSON.parse(fs.readFileSync(path.join(ROOT, 'content', 'mini-guides.draft.json'), 'utf8'));
+  assert.strictEqual(g.status, 'draft');
+  for (let d = 1; d <= 21; d++) {
+    const t = g.days[d];
+    assert.ok(t && t.trim(), 'Day' + d);
+    const sentences = t.split('。').filter((x) => x.trim()).length;
+    assert.ok(sentences >= 2 && sentences <= 4, 'Day' + d + ' は2〜4文：' + sentences);
+    assert.ok(!/必ず|絶対|保証|治る/.test(t), 'Day' + d + ' に断定・効果の表現');
+  }
+  // 心理学の補助説明（注意の偏り）は Day 2 だけ。毎日くり返さない
+  const bias = Object.keys(g.days).filter((d) => /ネガティビティ|注意が向き|気づきやすい性質/.test(g.days[d]));
+  assert.deepStrictEqual(bias, ['2']);
+  const src = JSON.stringify(readSource());
+  assert.ok(!src.includes(g.days[2].slice(0, 20)), '正式原稿に混ぜていない');
+});

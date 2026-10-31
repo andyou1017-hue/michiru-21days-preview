@@ -1079,3 +1079,123 @@ test('P3 手紙：書く前の「未来の自分の心を体感する」誘導�
   await context.close();
 });
 
+
+// ---------- ミニ解説（今日の小さな理由） ----------
+test('EXPL-01・02 21日すべてのワークの前に「今日の小さな理由」が出る。閉じてもすぐワークできる', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  const g = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'content', 'mini-guides.draft.json'), 'utf8'));
+  for (let n = 1; n <= 21; n++) {
+    await page.goto(base + '#/day/' + n + '/3');
+    await page.waitForSelector('.mini-guide');
+    // 順番：ミニ解説 → 今日のお話 → 問い
+    const order = await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('.mini-guide, .story, textarea'));
+      return els.slice(0, 3).map((e) => e.className || e.tagName);
+    });
+    assert.deepStrictEqual(order, ['mini-guide', 'story', 'TEXTAREA'], 'Day' + n);
+    assert.ok((await page.textContent('.mini-guide')).includes(g.days[n]), 'Day' + n + ' の文');
+  }
+  await page.goto(base + '#/day/2/3');
+  assert.match(await page.textContent('.mini-guide summary'), /今日の小さな理由/);
+  await page.click('.mini-guide summary');
+  assert.ok(!(await page.isVisible('.mini-guide p')));
+  await page.fill('#ans-0', '閉じたまま書ける');
+  await waitSaved(page);
+  assert.strictEqual((await stored(page)).entries[2].answers[0], '閉じたまま書ける');
+  await context.close();
+});
+
+// ---------- 保存できないとき（DATA-FAIL） ----------
+async function failingPage() {
+  const x = await newPage();
+  // window.__failSave = true のあいだ、端末への書き込みを失敗させる（容量不足などのまね）
+  await x.context.addInitScript(() => {
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+      if (window.__failSave && k === 'michiru21.v1') { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+      return orig.call(this, k, v);
+    };
+    const origRemove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (k) {
+      if (window.__failRemove && k === 'michiru21.v1') throw new Error('SecurityError');
+      return origRemove.call(this, k);
+    };
+  });
+  return x;
+}
+
+test('DATA-FAIL 保存に失敗したら「保存しました」と出さない（入力・1日削除・全削除）', { skip }, async () => {
+  const { context, page } = await failingPage();
+  await consent(page);
+  await page.goto(base + '#/day/3/3');
+  await page.fill('#ans-0', '保存できた記録');
+  await waitSaved(page);
+  await page.evaluate(() => { window.__failSave = true; });
+  // 入力：保存できないことを知らせる
+  await page.fill('#ans-0', '保存できない記録');
+  await page.waitForFunction(() => document.getElementById('save-status').getAttribute('data-state') === 'error');
+  assert.match(await page.textContent('#save-status'), /保存できませんでした/);
+  assert.ok(!/ここまでの記録は、この端末に保存されます/.test(await page.textContent('.pause-link')), '中断の案内でも保存済みと言わない');
+  // 1日削除：失敗したら記録の一覧に戻らず、保存済みと出さない
+  await page.goto(base + '#/records/3');
+  await page.click('#del-day');
+  await page.click('#confirm-ok');
+  await page.waitForTimeout(300);
+  assert.strictEqual(await page.getAttribute('#save-status', 'data-state'), 'error');
+  assert.ok(page.url().endsWith('#/records/3'));
+  // 全削除：消すことも書くこともできなかったら、最初の画面に移らない
+  await page.evaluate(() => { window.__failRemove = true; });
+  await page.goto(base + '#/settings');
+  await page.click('#delete-all');
+  await page.click('#confirm-ok');
+  await page.waitForTimeout(300);
+  assert.strictEqual(await page.getAttribute('#save-status', 'data-state'), 'error');
+  assert.ok(page.url().endsWith('#/settings'));
+  // 端末に残っているのは、最後に保存できた内容
+  const s = await page.evaluate(() => JSON.parse(localStorage.getItem('michiru21.v1')));
+  assert.strictEqual(s.entries[3].answers[0], '保存できた記録');
+  // 書き込めるようになれば、次の保存で「保存しました」に戻る
+  await page.evaluate(() => { window.__failSave = false; window.__failRemove = false; });
+  await page.goto(base + '#/day/4/3');
+  await page.fill('#ans-0', 'また保存できる');
+  await waitSaved(page);
+  await context.close();
+});
+
+test('DATA-FAIL 手紙：保存に失敗したら、封をしたことにも開封したことにもならない', { skip }, async () => {
+  serverNow = null;
+  const { context, page } = await failingPage();
+  await consent(page);
+  await page.goto(base + '#/day/1/5');
+  await openLetterWriter(page);
+  await page.fill('#letter-text', '保存できないときの手紙');
+  await waitSaved(page);
+  await page.evaluate(() => { window.__failSave = true; });
+  await page.click('#letter-seal');
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /封をしていません/.test(document.getElementById('seal-msg').textContent));
+  assert.ok(await page.isVisible('#letter-text'), '書く欄のまま');
+  assert.ok(!/封をしました/.test(await page.textContent('.letter-box')));
+  // 書き込めるようになってから封をする
+  await page.evaluate(() => { window.__failSave = false; });
+  await page.click('#letter-seal');
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /封をしました/.test(document.querySelector('.letter-box').textContent));
+  await waitSaved(page);
+  const sealed = Date.parse((await stored(page)).futureLetter.sealed_trusted_at);
+  // 7日後：開封の保存に失敗したら、開封済みにしない
+  await setServerTime(page, sealed + 8 * DAY);
+  await page.goto(base + '#/day/7/5');
+  await letterState(page);
+  await page.evaluate(() => { window.__failSave = true; });
+  await page.click('#letter-open');
+  await page.waitForSelector('.warn-msg');
+  assert.match(await page.textContent('#letter-read'), /まだ開封していません/);
+  assert.strictEqual(await page.locator('.letter-quote').count(), 0);
+  await page.evaluate(() => { window.__failSave = false; });
+  await page.click('#letter-open');
+  await page.waitForSelector('.letter-quote');
+  await context.close();
+  serverNow = null;
+});

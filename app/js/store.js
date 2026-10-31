@@ -147,7 +147,7 @@
     }
   }
   LocalBackend.prototype.read = function () {
-    if (!this.available) return this.memory;
+    if (!this.available || this.failed) return this.memory;
     try {
       var txt = window.localStorage.getItem(this.key);
       return txt ? JSON.parse(txt) : null;
@@ -159,16 +159,19 @@
     if (!this.available) { this.memory = JSON.parse(JSON.stringify(state)); return false; }
     try {
       window.localStorage.setItem(this.key, JSON.stringify(state));
+      this.failed = false;
       return true;
     } catch (e) {
+      // 容量不足などで書けなかった：この画面の間はメモリの内容を正とし、保存できていないことを知らせる
+      this.failed = true;
       this.memory = JSON.parse(JSON.stringify(state));
       return false;
     }
   };
   LocalBackend.prototype.clear = function () {
     this.memory = null;
-    if (!this.available) return;
-    try { window.localStorage.removeItem(this.key); } catch (e) { /* 何もしない */ }
+    if (!this.available) return true;
+    try { window.localStorage.removeItem(this.key); return true; } catch (e) { return false; }
   };
 
   // remote: 本番のみ。{ pushEntry(day, entry) -> Promise, deleteEntry(day), deleteAll() }
@@ -237,26 +240,33 @@
     this.backend.clear();
   };
 
+  Store.prototype.localStatus = function (ok) {
+    if (ok) return 'saved';
+    return this.backend.available ? 'error' : 'memory';
+  };
+
+  // 保存できたら true。保存できなかったら false（画面には「保存できませんでした」と出す）
   Store.prototype.flush = function () {
     clearTimeout(this.timer);
     this.timer = null;
-    if (this.detached) return;
+    if (this.detached) return false;
     var ok = this.backend.write(this.state);
     var days = Object.keys(this.dirtyDays);
     this.dirtyDays = {};
-    if (this.remote) {
+    if (this.remote && ok) {
       for (var i = 0; i < days.length; i++) this.pendingRemote[days[i]] = true;
       this.pushRemote();
     } else {
-      this.setStatus(ok ? 'saved' : 'memory');
+      this.setStatus(this.localStatus(ok));
     }
+    return ok;
   };
 
   Store.prototype.pushRemote = function () {
     var self = this;
     if (!this.remote || this.pushing) return;
     var days = Object.keys(this.pendingRemote);
-    if (!days.length) { this.setStatus(this.backend.available ? 'saved' : 'memory'); return; }
+    if (!days.length) { this.setStatus(this.localStatus(!this.backend.failed && this.backend.available)); return; }
     this.pushing = true;
     var day = Number(days[0]);
     var e = this.state.entries[day];
@@ -279,24 +289,30 @@
   };
 
   Store.prototype.deleteDay = function (day) {
+    var prev = this.state.entries[day];
     delete this.state.entries[day];
-    if (this.remote) this.pendingRemote[day] = true;
-    this.backend.write(this.state);
-    if (this.remote) this.pushRemote(); else this.setStatus(this.backend.available ? 'saved' : 'memory');
+    var ok = this.backend.write(this.state);
+    if (!ok && prev) this.state.entries[day] = prev; // 消せなかったら、画面の記録も元のまま
+    if (this.remote && ok) { this.pendingRemote[day] = true; this.pushRemote(); } else this.setStatus(this.localStatus(ok));
+    return ok;
   };
 
   Store.prototype.deleteAll = function () {
     var self = this;
+    var prev = this.state;
     var settings = this.state.settings;
     this.state = emptyState();
     this.state.settings = settings;
     this.dirtyDays = {};
     this.pendingRemote = {};
-    this.backend.clear();
-    this.backend.write(this.state);
-    if (this.remote) return this.remote.deleteAll().then(function () { self.setStatus('saved'); });
-    this.setStatus(this.backend.available ? 'saved' : 'memory');
-    return Promise.resolve();
+    // 消すこと自体（clear）ができていれば、全削除はできている。空の状態の書き込みに失敗しても記録は残らない
+    var cleared = this.backend.clear();
+    var written = this.backend.write(this.state);
+    var ok = cleared || written;
+    if (!ok) { this.state = prev; this.backend.write(prev); } // 消せなかったら、画面の記録も元のまま
+    if (this.remote && ok) return this.remote.deleteAll().then(function () { self.setStatus('saved'); return true; });
+    this.setStatus(this.localStatus(ok));
+    return Promise.resolve(ok);
   };
 
   // ---- 私の発見 ----
@@ -346,7 +362,11 @@
     var dev = Math.max(Date.now(), Date.parse(this.state.clock.maxSeen) || 0);
     this.state.futureLetter.sealed_at = new Date(dev).toISOString();
     this.state.futureLetter.sealed_trusted_at = typeof trusted === 'number' ? new Date(trusted).toISOString() : null;
-    this.flush();
+    if (!this.flush()) { // 保存できないまま「封をした」と見せない
+      this.state.futureLetter.sealed_at = null;
+      this.state.futureLetter.sealed_trusted_at = null;
+      return false;
+    }
     return true;
   };
   // 通信できないまま封をし、そのとき端末の時計が進んでいた場合：封の時刻が「今」より未来になっている。
@@ -366,8 +386,9 @@
     if (this.isOpened()) return true;
     if (!this.canOpen(trusted)) return false;
     this.state.futureLetter.opened_at = new Date(trusted).toISOString();
+    var skipped = this.state.futureSkipped;
     this.state.futureSkipped = {};
-    this.flush();
+    if (!this.flush()) { this.state.futureLetter.opened_at = null; this.state.futureSkipped = skipped; return false; }
     return true;
   };
   Store.prototype.setFutureReply = function (day, text) {

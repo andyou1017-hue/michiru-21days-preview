@@ -50,7 +50,7 @@ a { color: var(--green); }
 .brand { font-family: var(--serif); color: var(--ink); text-decoration: none; font-weight: 600; display: flex; flex-direction: column; line-height: 1.3; }
 .brand span { font-size: .75rem; color: var(--muted); font-weight: 400; }
 .save-status { margin: 0; font-size: .75rem; color: var(--muted); text-align: right; max-width: 55%; }
-.save-status[data-state="memory"], .save-status[data-state="offline"] { color: var(--danger); }
+.save-status[data-state="memory"], .save-status[data-state="offline"], .save-status[data-state="error"] { color: var(--danger); font-weight: 700; }
 
 .view { max-width: 680px; margin: 0 auto; padding: 16px; }
 .view:focus { outline: none; }
@@ -194,3 +194,9 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .future-feel p { margin: 0 0 .3em; }
 .letter-arrived { margin: -6px 0 16px; text-align: center; }
 .letter-arrived a { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px dashed var(--gold); border-radius: 999px; background: #fffdf7; text-decoration: none; }
+.warn-msg { color: var(--danger); font-weight: 600; margin: 4px 0; }
+.warn-msg:empty { display: none; }
+.mini-guide { margin: 0 0 14px; padding: 4px 14px 8px; background: var(--beige); border-radius: 10px; }
+.mini-guide summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; color: var(--green); }
+.mini-guide p { margin: 0 0 6px; line-height: 1.9; }
+.draft-mark { font-size: .75rem; color: var(--muted); }
