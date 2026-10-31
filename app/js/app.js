@@ -8,6 +8,8 @@
   var api = null;        // 本番のみ（js/api.js）
   var account = null;    // 本番のみ：{ email, access }
   var timer = null;
+  var guidancePlayer = null;
+  var guidanceCleanup = null;
   var view = document.getElementById('view');
   var statusEl = document.getElementById('save-status');
 
@@ -443,6 +445,80 @@
   var prepTimer = null;
   function lines(arr) { return arr.map(function (t) { return '<p>' + esc(t) + '</p>'; }).join(''); }
 
+  function futureGuidanceHtml() {
+    var g = window.MichiruFutureGuidance;
+    if (!g) return '';
+    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">最高の未来を感じる音声誘導</h4>' +
+      '<p class="muted">端末の日本語読み上げを使います。声は端末によって異なります。途中に33秒の無音が3回あります。</p>' +
+      '<p class="muted">座って安全に過ごせる場所で使ってください。目を開けたままでも、途中でやめてもかまいません。</p>' +
+      '<label for="guidance-voice">読み上げの声</label><select id="guidance-voice"><option value="">端末の日本語音声</option></select>' +
+      '<p class="row"><button class="btn" type="button" id="guidance-start">音声をはじめる・最初から</button>' +
+      '<button class="btn" type="button" id="guidance-pause" hidden>一時停止</button>' +
+      '<button class="btn" type="button" id="guidance-resume" hidden>再開する</button>' +
+      '<button class="btn" type="button" id="guidance-stop" hidden>停止する</button></p>' +
+      '<p id="guidance-status" role="status">音声は自動では流れません。</p><p id="guidance-seconds" aria-live="off"></p>' +
+      '<details class="guidance-transcript"><summary>音声の原稿を読む</summary>' + g.sections.map(function (s) {
+        return '<h4>' + esc(s.title) + '</h4>' + lines(s.text) + (s.silence ? '<p>【ここで33秒間、無言】</p>' : '');
+      }).join('') + '</details></section>';
+  }
+
+  function disposeGuidance() {
+    if (guidancePlayer) guidancePlayer.stop();
+    guidancePlayer = null;
+    if (guidanceCleanup) guidanceCleanup();
+    guidanceCleanup = null;
+  }
+
+  function bindFutureGuidance(reveal) {
+    var start = document.getElementById('guidance-start');
+    if (!start) return;
+    disposeGuidance();
+    var g = window.MichiruFutureGuidance, synth = window.speechSynthesis;
+    var status = document.getElementById('guidance-status'), seconds = document.getElementById('guidance-seconds');
+    var pause = document.getElementById('guidance-pause'), resume = document.getElementById('guidance-resume');
+    var stop = document.getElementById('guidance-stop'), select = document.getElementById('guidance-voice');
+    var voices = [];
+    function updateVoices() {
+      var previous = select.value;
+      voices = synth ? synth.getVoices().filter(function (v) { return /^ja(?:-|$)/i.test(v.lang); }) : [];
+      select.innerHTML = '<option value="">端末の日本語音声</option>' + voices.map(function (v) {
+        return '<option value="' + esc(v.name) + '">' + esc(v.name) + '</option>';
+      }).join('');
+      if (voices.some(function (v) { return v.name === previous; })) select.value = previous;
+    }
+    guidancePlayer = new g.Player(function (s) {
+      pause.hidden = s.state !== 'playing';
+      resume.hidden = s.state !== 'paused' && s.state !== 'error';
+      stop.hidden = ['playing', 'paused', 'error'].indexOf(s.state) < 0;
+      var section = g.sections[s.index];
+      var text = s.state === 'playing' ? (section ? section.title : '') + (s.phase === 'silence' ? '：静かに感じる時間です。' : '：読み上げています。') :
+        s.state === 'paused' ? '一時停止中です。読み上げ中の再開は、その段階の最初からになります。' :
+        s.state === 'error' ? '読み上げを続けられませんでした。再開するか、原稿を読みながら進められます。' :
+        s.state === 'done' ? '音声誘導が終わりました。感じたことを、書き残してみましょう。' :
+        s.state === 'unsupported' ? 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。' : '音声は停止しています。';
+      if (status.textContent !== text) status.textContent = text;
+      seconds.textContent = s.phase === 'silence' && s.remaining !== undefined ? '無音の時間：あと' + s.remaining + '秒' : '';
+    }, function () { reveal(); document.getElementById('letter-text').focus(); });
+    start.disabled = !guidancePlayer.supported();
+    if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。';
+    updateVoices();
+    start.addEventListener('click', function () {
+      if (prepTimer) prepTimer.dispose();
+      document.getElementById('prep-player').hidden = true;
+      guidancePlayer.start(voices.filter(function (v) { return v.name === select.value; })[0]);
+    });
+    pause.addEventListener('click', function () { guidancePlayer.pause(); });
+    resume.addEventListener('click', function () { guidancePlayer.resume(); });
+    stop.addEventListener('click', function () { guidancePlayer.stop(); });
+    function onHidden() { if (document.visibilityState === 'hidden' && guidancePlayer) guidancePlayer.pause(); }
+    document.addEventListener('visibilitychange', onHidden);
+    if (synth) synth.addEventListener('voiceschanged', updateVoices);
+    guidanceCleanup = function () {
+      document.removeEventListener('visibilitychange', onHidden);
+      if (synth) synth.removeEventListener('voiceschanged', updateVoices);
+    };
+  }
+
   function letterWriteHtml() {
     var l = store.state.futureLetter;
     var head = '<summary>未来からの手紙（任意）</summary>';
@@ -459,7 +535,8 @@
       '<div class="letter-intro"><h3>答えから、今を見てみましょう</h3>' + lines(LETTER_INTRO) + '</div>' +
       '<details class="answer-view"><summary>「答えから見る」という考え方</summary>' + lines(ANSWER_VIEW) + '</details>' +
       '<section class="letter-prep" aria-labelledby="prep-title"><h3 id="prep-title">書く前に、心を整えましょう</h3>' +
-      '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。どちらかを選んでください。</p>' +
+      '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。音声や静かな時間を選べます。</p>' +
+      futureGuidanceHtml() +
       '<p class="row"><button type="button" class="btn" id="prep-33">33秒の静かな時間</button>' +
       '<button type="button" class="btn" id="prep-thanks">感謝の瞑想（約1分）</button></p>' +
       '<div id="prep-player" hidden><div class="timer" aria-live="polite"><span id="prep-sec" class="t-sec"></span><span class="t-unit">秒</span></div>' +
@@ -494,6 +571,7 @@
       document.getElementById('letter-write').hidden = false;
     }
     function play(m) {
+      if (guidancePlayer) guidancePlayer.stop();
       if (prepTimer) prepTimer.dispose();
       player.hidden = false; pause.hidden = false; resume.hidden = true;
       prepTimer = new window.MichiruTimer(m.seconds, function (remain, ms) {
@@ -512,6 +590,7 @@
       prepTimer.start();
     }
     b33.addEventListener('click', function () { play(C.meditation); });
+    bindFutureGuidance(reveal);
     document.getElementById('prep-thanks').addEventListener('click', function () { play(GRATITUDE_MEDITATION); });
     pause.addEventListener('click', function () { prepTimer.pause(); pause.hidden = true; resume.hidden = false; });
     resume.addEventListener('click', function () { prepTimer.start(); pause.hidden = false; resume.hidden = true; });
@@ -521,6 +600,7 @@
       reveal();
     });
     document.getElementById('prep-skip').addEventListener('click', function () {
+      if (guidancePlayer) guidancePlayer.stop();
       document.getElementById('letter-write').hidden = false;
       document.getElementById('prep-skip').hidden = true;
       document.getElementById('letter-text').focus();
@@ -547,6 +627,7 @@
           return;
         }
         var box = document.querySelector('.letter-box');
+        disposeGuidance();
         box.outerHTML = letterWriteHtml();
         var st = document.querySelector('.seal-state');
         st.setAttribute('tabindex', '-1'); st.focus();
@@ -981,6 +1062,7 @@
 
   // ---------- 振り分け ----------
   function render() {
+    disposeGuidance();
     if (timer) { timer.dispose(); timer = null; }
     if (prepTimer) { prepTimer.dispose(); prepTimer = null; }
     letterPrepDone = false;

@@ -136,6 +136,52 @@ test('ホームでも草案のミニ解説に確認中の注記を表示する',
   await context.close();
 });
 
+test('未来の手紙の音声：操作してから再生し、33秒無音を3回経て書き出しへ進む', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  await page.addInitScript(() => {
+    const synth = new EventTarget();
+    window.__guidanceSpoken = [];
+    synth.getVoices = () => [{ name: 'テスト日本語音声', lang: 'ja-JP' }];
+    synth.speak = u => { window.__guidanceSpoken.push(u.text); window.__guidanceLast = u; };
+    synth.cancel = () => { window.__guidanceCancelled = (window.__guidanceCancelled || 0) + 1; };
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
+    window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  });
+  await consent(page); await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box > summary');
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), 0);
+  await page.clock.install();
+  await page.selectOption('#guidance-voice', 'テスト日本語音声');
+  await page.click('#guidance-start');
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), 1);
+  await page.click('#guidance-pause');
+  assert.match(await page.textContent('#guidance-status'), /一時停止/);
+  await page.click('#guidance-resume');
+  for (let i = 0; i < 7; i++) {
+    await page.evaluate(() => window.__guidanceLast.onend());
+    if ([2, 3, 4].includes(i)) {
+      assert.match(await page.textContent('#guidance-seconds'), /33秒/);
+      const count = await page.evaluate(() => window.__guidanceSpoken.length);
+      await page.clock.fastForward(32000);
+      assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), count);
+      await page.clock.fastForward(1000);
+    }
+  }
+  assert.match(await page.textContent('#guidance-status'), /終わりました/);
+  assert.equal(await page.isVisible('#letter-write'), true);
+  await page.fill('#letter-text', '未来の自分から届いた言葉');
+  await page.click('#guidance-start');
+  const count = await page.evaluate(() => window.__guidanceSpoken.length);
+  await page.goto(base + '#/settings');
+  await page.waitForSelector('#export');
+  await page.evaluate(() => window.__guidanceLast.onend());
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), count);
+  assert.ok(await page.evaluate(() => window.__guidanceCancelled > 0));
+  assert.equal((await stored(page)).futureLetter.text, '未来の自分から届いた言葉');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('S01 はじめに：読んだ確認をしないと始められない', { skip }, async () => {
   const { context, page, errors } = await newPage();
   await page.goto(base);
