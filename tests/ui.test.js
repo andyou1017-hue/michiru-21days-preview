@@ -1223,23 +1223,30 @@ test('P3 手紙：通信できないまま、端末の時計が進んだ状態�
   let s = await stored(page);
   assert.strictEqual(s.futureLetter.sealed_trusted_at, null);
   await page.unroute('**/*clock=*');
+  // WebKitで60日進めた仮想時計のまま連続ナビゲーションすると、
+  // 7日境界の画面遷移中にページがクラッシュすることがある。
+  // 封をした記録を保持したまま新しいブラウザ環境で再開し、
+  // 実際の機種変更・再ログインに近い復元経路も合わせて検証する。
+  const sealedStorage = await context.storageState();
+  await context.close();
+  const resumed = await newPage({ storageState: sealedStorage });
+  const resumedPage = resumed.page;
   const real = Date.now();
   serverNow = real;
-  await page.reload();
-  await page.goto(base + '#/day/7/5');
-  assert.match(await letterState(page), /封をしてから7日後/);
-  await waitSaved(page);
-  s = await stored(page);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.match(await letterState(resumedPage), /封をしてから7日後/);
+  await waitSaved(resumedPage);
+  s = await stored(resumedPage);
   const basis = Date.parse(s.futureLetter.sealed_trusted_at);
   assert.ok(Math.abs(basis - real) < 60 * 1000, '基準が今のサーバー時刻に寄った');
   // 7日後に届く（60日待たなくてよい）。7日より前は届かない
-  await setServerTime(page, basis + 7 * DAY - 1000);
-  await page.goto(base + '#/day/7/5');
-  assert.match(await letterState(page), /封をしてから7日後/);
-  await setServerTime(page, basis + 7 * DAY + 1000);
-  await page.goto(base + '#/day/7/5');
-  assert.ok((await letterState(page)).includes(T3));
-  await context.close();
+  await setServerTime(resumedPage, basis + 7 * DAY - 1000);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.match(await letterState(resumedPage), /封をしてから7日後/);
+  await setServerTime(resumedPage, basis + 7 * DAY + 1000);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.ok((await letterState(resumedPage)).includes(T3));
+  await resumed.context.close();
   serverNow = null;
 });
 
