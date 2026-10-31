@@ -22,7 +22,7 @@ async function fixture(t, options = {}) {
     assert.equal(r.status, 200);
     return r.headers.get('set-cookie').split(';')[0];
   }
-  return { gateway, base, post, enroll, advance: ms => { clock += ms; } };
+  return { gateway, base, post, enroll, databasePath: path.join(dir, 'private.sqlite'), advance: ms => { clock += ms; } };
 }
 test('未招待者は教材HTML・JS・JSON・bootstrapの直URLからも入れない', async t => {
   const { base } = await fixture(t);
@@ -30,6 +30,41 @@ test('未招待者は教材HTML・JS・JSON・bootstrapの直URLからも入れ�
   for (const route of ['/js/content.js', '/js/app.js', '/js/future-guidance.js', '/content/days.yellow.json', '/api/bootstrap', '/runtime/gateway.js', '/private.sqlite']) {
     assert.equal((await fetch(base + route)).status, 401, route);
   }
+});
+test('起動確認は個人情報を返さず、認証が必要なAPIは保護したままにする', async t => {
+  const { base } = await fixture(t);
+  const response = await fetch(base + '/healthz');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal((await fetch(base + '/api/bootstrap')).status, 401);
+});
+test('稼働中DBを安全にバックアップし、別DBでログイン情報を復元できる', async t => {
+  const { createBackup } = require('../runtime/backup');
+  const { base, enroll, databasePath } = await fixture(t);
+  const cookie = await enroll('backup@example.invalid');
+  const original = await (await fetch(base + '/api/bootstrap', { headers: { Cookie: cookie } })).json();
+  const target = path.join(path.dirname(databasePath), 'backup.sqlite');
+  await createBackup(databasePath, target);
+  assert.equal(fs.statSync(target).mode & 0o777, 0o600);
+  const bytes = fs.readFileSync(target);
+  await assert.rejects(createBackup(databasePath, target));
+  assert.deepEqual(fs.readFileSync(target), bytes);
+  const restored = createGateway({ databasePath: target, origin: 'http://127.0.0.1:0', development: true });
+  await new Promise(r => restored.server.listen(0, '127.0.0.1', r));
+  try {
+    const response = await fetch('http://127.0.0.1:' + restored.server.address().port + '/api/bootstrap', { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).account.id, original.account.id);
+  } finally { await new Promise(r => restored.server.close(r)); }
+  const missing = path.join(path.dirname(databasePath), 'missing.sqlite');
+  await assert.rejects(createBackup(missing, path.join(path.dirname(databasePath), 'not-created.sqlite')));
+  assert.equal(fs.existsSync(missing), false);
+});
+test('本番用起動はオーナー承認と接続設定がなければ拒否する', () => {
+  const { productionOptions } = require('../runtime/production');
+  assert.throws(() => productionOptions({}));
+  assert.throws(() => productionOptions({ MICHIRU_RELEASE_APPROVED: 'yes' }));
+  assert.deepEqual(productionOptions({ MICHIRU_RELEASE_APPROVED: 'yes', MICHIRU_ORIGIN: 'https://example.invalid', MICHIRU_DB: '/private/michiru.sqlite' }), { origin: 'https://example.invalid', databasePath: '/private/michiru.sqlite' });
 });
 test('招待は宛先・期限・一回利用を検証し、再ログインはパスワードで行う', async t => {
   const { gateway, base, post, advance } = await fixture(t);

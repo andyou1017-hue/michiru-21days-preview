@@ -182,6 +182,48 @@ test('未来の手紙の音声：操作してから再生し、33秒無音を3�
   await context.close();
 });
 
+test('全21日の教材読み上げ：ミニ解説・本文・問いを読み、入力した記録は含めない', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  await page.addInitScript(() => {
+    const synth = new EventTarget();
+    synth.getVoices = () => [{ name: '日本語', lang: 'ja-JP' }];
+    synth.speak = utterance => { window.__readUtterance = utterance; window.__readTexts.push(utterance.text); };
+    synth.cancel = () => {};
+    window.__readTexts = [];
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
+    window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  });
+  await consent(page);
+  for (let day = 1; day <= 21; day++) {
+    await page.goto(base + '#/day/' + day + '/3');
+    await page.waitForFunction(day => document.querySelector('.day-head .eyebrow')?.textContent === 'Day ' + String(day).padStart(2, '0') + ' / 21', day);
+    await page.fill('#ans-0', '読み上げない個人の記録');
+    await page.evaluate(() => { window.__readTexts = []; });
+    await page.click('#lesson-read');
+    if (day === 1) {
+      await page.click('#lesson-read-pause');
+      assert.match(await page.textContent('#lesson-read-status'), /一時停止/);
+      await page.click('#lesson-read-resume');
+    }
+    await page.evaluate(() => {
+      for (let i = 0; i < 12 && !document.getElementById('lesson-read-pause').hidden; i++) window.__readUtterance.onend();
+    });
+    assert.match(await page.textContent('#lesson-read-status'), /終わりました/);
+    const spoken = await page.evaluate(() => window.__readTexts.join('\n'));
+    const title = await page.textContent('.day-head h1');
+    assert.ok(spoken.includes(title));
+    assert.ok(spoken.includes((await page.textContent('.story p')).trim()));
+    assert.ok(!spoken.includes('読み上げない個人の記録'));
+  }
+  await page.click('#lesson-read');
+  const count = await page.evaluate(() => window.__readTexts.length);
+  await page.goto(base + '#/settings'); await page.waitForSelector('#export');
+  await page.evaluate(() => window.__readUtterance.onend());
+  assert.equal(await page.evaluate(() => window.__readTexts.length), count);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 test('S01 はじめに：読んだ確認をしないと始められない', { skip }, async () => {
   const { context, page, errors } = await newPage();
   await page.goto(base);

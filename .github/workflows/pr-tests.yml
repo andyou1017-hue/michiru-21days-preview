@@ -31,3 +31,25 @@ jobs:
         env:
           PW_BROWSER: ${{ matrix.browser }}
         run: npm test
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment configuration and build local image
+        run: |
+          MICHIRU_DOMAIN=review.example.invalid MICHIRU_RELEASE_APPROVED=no docker compose config --quiet
+          docker build -t michiru-local-review .
+      - name: Start isolated local test container
+        run: |
+          docker run -d --name michiru-local-check --network none --read-only --cap-drop ALL --tmpfs /data:rw,uid=1000,gid=1000,mode=0700 --tmpfs /tmp -e MICHIRU_ORIGIN=https://review.example.invalid -e MICHIRU_DB=/data/private/check.sqlite michiru-local-review node runtime/gateway.js
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if docker exec michiru-local-check node runtime/healthcheck.js; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Back up running test database
+        run: docker exec michiru-local-check node runtime/backup.js /data/private/backup.sqlite
+      - name: Remove test container
+        if: always()
+        run: docker rm -f michiru-local-check || true

@@ -75,5 +75,45 @@
     if (this.supported()) window.speechSynthesis.cancel();
     this.state = 'idle'; this.phase = 'speech'; this.emit();
   };
-  window.MichiruFutureGuidance = { sections: sections, Player: Player };
+  // 教材用。渡された原稿だけを読み、記入欄や保存記録は参照しない。
+  function Reader(paragraphs, onChange) {
+    this.paragraphs = paragraphs.filter(function (text) { return typeof text === 'string' && text.trim(); });
+    this.onChange = onChange; this.index = 0; this.state = 'idle'; this.generation = 0;
+  }
+  Reader.prototype.supported = Player.prototype.supported;
+  Reader.prototype.read = function () {
+    var self = this, generation = ++this.generation;
+    if (this.index >= this.paragraphs.length) { this.state = 'done'; this.onChange(this.state); return; }
+    var utterance = new window.SpeechSynthesisUtterance(this.paragraphs[this.index]);
+    utterance.lang = 'ja-JP'; utterance.rate = 0.95;
+    var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    var japanese = voices.filter(function (voice) { return /^ja(?:-|$)/i.test(voice.lang); });
+    if (japanese.length) utterance.voice = japanese[0];
+    this.utterance = utterance; this.state = 'playing'; this.onChange(this.state);
+    utterance.onend = function () {
+      if (self.generation !== generation || self.state !== 'playing') return;
+      self.index++; self.read();
+    };
+    utterance.onerror = function () {
+      if (self.generation !== generation) return;
+      self.state = 'error'; self.onChange(self.state);
+    };
+    try { window.speechSynthesis.speak(utterance); } catch (_) { this.state = 'error'; this.onChange(this.state); }
+  };
+  Reader.prototype.start = function () {
+    this.stop(); this.index = 0;
+    if (!this.supported()) { this.state = 'unsupported'; this.onChange(this.state); return; }
+    this.read();
+  };
+  Reader.prototype.pause = function () {
+    if (this.state !== 'playing') return;
+    this.generation++; this.state = 'paused'; window.speechSynthesis.cancel(); this.onChange(this.state);
+  };
+  Reader.prototype.resume = function () { if (this.state === 'paused' || this.state === 'error') this.read(); };
+  Reader.prototype.stop = function () {
+    this.generation++; this.state = 'idle'; this.utterance = null;
+    if (this.supported()) window.speechSynthesis.cancel();
+    this.onChange(this.state);
+  };
+  window.MichiruFutureGuidance = { sections: sections, Player: Player, Reader: Reader };
 })();

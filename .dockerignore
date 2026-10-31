@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!app/
+!app/**
+!content/
+!content/**
+!tools/
+!tools/**
+!runtime/
+!runtime/**
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/.env*

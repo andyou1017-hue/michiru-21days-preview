@@ -10,6 +10,8 @@
   var timer = null;
   var guidancePlayer = null;
   var guidanceCleanup = null;
+  var lessonReader = null;
+  var readerCleanup = null;
   var view = document.getElementById('view');
   var statusEl = document.getElementById('save-status');
 
@@ -311,7 +313,7 @@
         '</div>';
     }
 
-    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + body + '</div>' + stepNav(n, step) + '</article>';
+    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() : '') + body + '</div>' + stepNav(n, step) + '</article>';
 
     if (step === 1) bindMood(n, 'mood-am', 'mood_am');
     if (step === 2) bindTimer(n);
@@ -344,7 +346,49 @@
       var u = document.getElementById('undo');
       if (u) u.addEventListener('click', function () { u.disabled = true; store.toggleComplete(n, false); render(); });
     }
+    if (step >= 3) bindLessonRead(d, step);
     focusHeading();
+  }
+
+  function lessonReadHtml() {
+    return '<section class="lesson-reader" aria-label="教材の読み上げ"><p class="row">' +
+      '<button type="button" class="btn small" id="lesson-read">教材を読み上げる</button>' +
+      '<button type="button" class="btn small" id="lesson-read-pause" hidden>一時停止</button>' +
+      '<button type="button" class="btn small" id="lesson-read-resume" hidden>再開する</button>' +
+      '<button type="button" class="btn small" id="lesson-read-stop" hidden>停止する</button></p>' +
+      '<p class="muted">端末の日本語音声を使います。書き込んだ記録は読み上げません。</p><p id="lesson-read-status" role="status"></p></section>';
+  }
+  function disposeReader() {
+    if (lessonReader) lessonReader.stop(); lessonReader = null;
+    if (readerCleanup) readerCleanup(); readerCleanup = null;
+  }
+  function bindLessonRead(day, step) {
+    if (!window.MichiruFutureGuidance) return;
+    var start = document.getElementById('lesson-read'), pause = document.getElementById('lesson-read-pause');
+    var resume = document.getElementById('lesson-read-resume'), stop = document.getElementById('lesson-read-stop');
+    var status = document.getElementById('lesson-read-status');
+    var paragraphs = [day.title];
+    if (step === 3) {
+      var guide = C.mini_guides && C.mini_guides.days && C.mini_guides.days[day.day];
+      if (guide) paragraphs.push(guide);
+      paragraphs.push(day.intro); paragraphs = paragraphs.concat(day.prompts);
+    } else paragraphs.push(step === 4 ? day.action : day.reflection);
+    lessonReader = new window.MichiruFutureGuidance.Reader(paragraphs, function (state) {
+      pause.hidden = state !== 'playing'; resume.hidden = state !== 'paused' && state !== 'error';
+      stop.hidden = ['playing', 'paused', 'error'].indexOf(state) < 0;
+      status.textContent = state === 'playing' ? '読み上げています。' : state === 'paused' ? '一時停止中です。再開すると、その段落の最初から読み上げます。' :
+        state === 'done' ? '読み上げが終わりました。' : state === 'error' ? '読み上げを続けられませんでした。再開するか、文章を読んで進められます。' :
+        state === 'unsupported' ? 'このブラウザでは読み上げを使えません。文章を読んで進められます。' : '';
+    });
+    start.disabled = !lessonReader.supported();
+    if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。';
+    start.addEventListener('click', function () { if (guidancePlayer) guidancePlayer.stop(); lessonReader.start(); });
+    pause.addEventListener('click', function () { lessonReader.pause(); });
+    resume.addEventListener('click', function () { if (guidancePlayer) guidancePlayer.stop(); lessonReader.resume(); });
+    stop.addEventListener('click', function () { lessonReader.stop(); });
+    function hidden() { if (document.visibilityState === 'hidden' && lessonReader) lessonReader.pause(); }
+    document.addEventListener('visibilitychange', hidden);
+    readerCleanup = function () { document.removeEventListener('visibilitychange', hidden); };
   }
 
   // ---------- 私の発見（P2） ----------
@@ -503,12 +547,13 @@
     if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。';
     updateVoices();
     start.addEventListener('click', function () {
+      if (lessonReader) lessonReader.stop();
       if (prepTimer) prepTimer.dispose();
       document.getElementById('prep-player').hidden = true;
       guidancePlayer.start(voices.filter(function (v) { return v.name === select.value; })[0]);
     });
     pause.addEventListener('click', function () { guidancePlayer.pause(); });
-    resume.addEventListener('click', function () { guidancePlayer.resume(); });
+    resume.addEventListener('click', function () { if (lessonReader) lessonReader.stop(); guidancePlayer.resume(); });
     stop.addEventListener('click', function () { guidancePlayer.stop(); });
     function onHidden() { if (document.visibilityState === 'hidden' && guidancePlayer) guidancePlayer.pause(); }
     document.addEventListener('visibilitychange', onHidden);
@@ -571,6 +616,7 @@
       document.getElementById('letter-write').hidden = false;
     }
     function play(m) {
+      if (lessonReader) lessonReader.stop();
       if (guidancePlayer) guidancePlayer.stop();
       if (prepTimer) prepTimer.dispose();
       player.hidden = false; pause.hidden = false; resume.hidden = true;
@@ -1062,6 +1108,7 @@
 
   // ---------- 振り分け ----------
   function render() {
+    disposeReader();
     disposeGuidance();
     if (timer) { timer.dispose(); timer = null; }
     if (prepTimer) { prepTimer.dispose(); prepTimer = null; }

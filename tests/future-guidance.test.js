@@ -70,3 +70,14 @@ test('無音終了と一時停止が重なっても勝手に読み上げず、�
   p.stop(); old.finish();
   assert.equal(p.state, 'idle'); assert.equal(f.spoken.length, 4);
 });
+test('教材読み上げは指定原稿だけを順に読み、再開・停止で古い通知を無視する', () => {
+  const f = setup(), states = [];
+  const reader = new f.window.MichiruFutureGuidance.Reader(['本文そのまま', '問いそのまま'], state => states.push(state));
+  reader.start(); assert.equal(f.spoken[0].text, '本文そのまま');
+  reader.pause(); f.spoken[0].onend(); assert.equal(reader.index, 0);
+  reader.resume(); assert.equal(f.spoken.at(-1).text, '本文そのまま');
+  f.spoken.at(-1).onend(); assert.equal(f.spoken.at(-1).text, '問いそのまま');
+  f.spoken.at(-1).onend(); assert.equal(reader.state, 'done');
+  reader.start(); const old = f.spoken.at(-1); reader.stop(); old.onend();
+  assert.equal(reader.state, 'idle'); assert.ok(states.includes('paused'));
+});

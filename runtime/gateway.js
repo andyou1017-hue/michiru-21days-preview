@@ -93,6 +93,10 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     try {
       if (req.headers.host !== url.host) return send(res, 400, { error: '接続先を確認してください。' });
       const pathname = new URL(req.url, origin).pathname;
+      if (req.method === 'GET' && pathname === '/healthz') {
+        db.prepare('SELECT 1').get();
+        return send(res, 200, { ok: true });
+      }
       if (req.method === 'POST' && req.headers.origin !== origin) return send(res, 403, { error: 'この操作は許可されていません。' });
       if (req.method === 'POST' && ['/api/login', '/api/enroll'].includes(pathname)) {
         if (limited('ip:' + hash(req.socket.remoteAddress || ''), 60)) return send(res, 429, { error: 'しばらく待ってから、もう一度お試しください。' });
