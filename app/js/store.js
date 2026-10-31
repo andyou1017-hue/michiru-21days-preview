@@ -429,9 +429,15 @@
 
   Store.prototype.importBackup = function (raw) {
     var s = normalizeState(raw);
+    var prev = this.state;
     this.state = s;
     for (var d = 1; d <= 21; d++) this.dirtyDays[d] = true;
-    this.flush();
+    if (!this.flush()) { // 保存できなかったら、元の記録のままにする（画面と端末の中身を食い違わせない）
+      this.state = prev;
+      this.dirtyDays = {};
+      return false;
+    }
+    return true;
   };
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。

@@ -138,20 +138,26 @@
       return '<li><a class="day-card" data-state="' + st + '" href="#/day/' + d.day + '/1">' +
         '<span class="day-no">Day ' + pad(d.day) + '</span>' +
         '<span class="day-title">' + esc(d.title) + '</span>' +
-        '<span class="day-state">' + label + '</span></a></li>';
+        '<span class="day-state">' + label + '</span>' +
+        '<span class="card-flower">' + flower(d.day, 40) + '</span></a></li>';
     }).join('');
     // 今日の扉（ChatGPT の試作を統合）。「前回の続き」の入口を兼ねる
     var doorHtml = door
       ? '<section class="daily-door" aria-labelledby="daily-door-title">' +
         '<p class="eyebrow">DAY ' + pad(door) + ' / 21</p>' +
+        '<div class="door-flower">' + flower(door, 132) + '<p class="flower-name">今日の花：' + esc(flowerName(door)) + '</p></div>' +
         '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
         '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
         '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(door).title) + '</p>' +
         '<a class="btn primary" id="door-open" href="#/day/' + door + '/1" aria-label="今日の扉をひらく（Day ' + pad(door) + '「' + esc(dayOf(door).title) + '」）">今日の扉をひらく</a>' +
+        '<p class="door-time">目安 10〜15分。できるところまでで大丈夫です。</p>' +
+        doorGuideHtml(door) +
+        '<p class="door-action"><strong>今日の小さな実践</strong><br>' + esc(dayOf(door).action) + '</p>' +
         '<p class="muted">どの日からでも、あなたのペースで。</p>' +
         '</section>'
       : '<section class="daily-door" aria-labelledby="daily-door-title">' +
         '<p class="eyebrow">DAY 21 / 21</p>' +
+        '<div class="door-flower">' + flower(21, 132) + '<p class="flower-name">' + esc(flowerName(21)) + '</p></div>' +
         '<h2 id="daily-door-title">21日間を、歩き終えました。</h2>' +
         '<a class="btn primary" id="door-open" href="#/complete">21日間のおわりに</a>' +
         '<p class="muted">どの日も、いつでも開き直せます。</p>' +
@@ -194,6 +200,7 @@
         '<span class="dot">' + (i + 1) + '</span><span class="sr-only">' + esc(s) + '</span></a></li>';
     }).join('');
     return '<header class="day-head"><p class="eyebrow">Day ' + pad(d.day) + ' / 21</p>' +
+      '<div class="head-flower">' + flower(d.day, 64) + '<p class="flower-name">' + esc(flowerName(d.day)) + '</p></div>' +
       '<h1>' + esc(d.title) + '</h1>' +
       '<ol class="steps" aria-label="この日の流れ">' + dots + '</ol>' +
       '<p class="step-name">' + step + '. ' + esc(STEPS[step - 1]) + '</p></header>';
@@ -672,6 +679,15 @@
     focusHeading();
   }
 
+  // 21日の花（絵は読み上げず、名前を文字で示す）
+  function flower(day, size) { return window.MichiruFlowers ? window.MichiruFlowers.svg(day, size) : ''; }
+  function flowerName(day) { return window.MichiruFlowers ? window.MichiruFlowers.name(day) : ''; }
+  // 今日の扉に出す「今日の小さな理由」（ワークの画面と同じ文）
+  function doorGuideHtml(n) {
+    var g = C.mini_guides, t = g && g.days && g.days[n];
+    return t ? '<p class="door-guide">' + esc(t) + '</p>' : '';
+  }
+
   // ワークの前の「今日の小さな理由」（2〜3文）。読まずにすぐワークに進めるよう、折りたためる
   function miniGuideHtml(n) {
     var g = C.mini_guides;
@@ -818,7 +834,7 @@
     setTitle('21日間のおわりに');
     var c = C.closing;
     var consultUrl = window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.consultUrl;
-    view.innerHTML = '<section class="card closing"><h1>' + esc(c.title) + '</h1>' +
+    view.innerHTML = '<section class="card closing"><div class="closing-flower">' + flower(21, 120) + '</div><h1>' + esc(c.title) + '</h1>' +
       '<p class="lead">' + esc(c.text) + '</p>' +
       '<p>完了した日：' + store.completedDays().length + ' / 21日（完了していない日があっても、この21日間はここで完結しています）</p>' +
       '<details class="optional"><summary>このあとの学びについて（読まなくてもかまいません）</summary>' +
@@ -887,7 +903,7 @@
             'ファイル' + (at ? '（' + at.getFullYear() + '/' + (at.getMonth() + 1) + '/' + at.getDate() + ' に保存）' : '') + '：' + line(incoming) + '\n' +
             'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
-            store.importBackup(raw);
+            if (!store.importBackup(raw)) { msg.textContent = '端末に保存できなかったため、記録を戻せませんでした（いまの記録はそのままです）。'; return; }
             applyFont();
             msg.textContent = '記録を戻しました。';
           });

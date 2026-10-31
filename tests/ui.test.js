@@ -1199,3 +1199,102 @@ test('DATA-FAIL 手紙：保存に失敗したら、封をしたことにも開�
   await context.close();
   serverNow = null;
 });
+
+// ---------- クリームイエロー＋21日の花 ----------
+const FLOWER_NAMES = ['マーガレット', 'チューリップ', 'コスモス', 'ミモザ', 'ガーベラ', 'ひまわり', 'すずらん', 'デイジー', 'ラナンキュラス', 'フリージア',
+  'カモミール', 'スイートピー', 'スミレ', 'ポピー', 'ジャスミン', 'アネモネ', 'ネモフィラ', 'ダリア', 'カスミソウ', 'キンモクセイ', '黄金色のバラ'];
+
+test('FLOWER-01・02 21日すべて違う花が、その日の画面と一覧に出る（名前は文字で読める）', { skip }, async () => {
+  assert.strictEqual(new Set(FLOWER_NAMES).size, 21);
+  const { context, page, errors } = await newPage();
+  await consent(page);
+  for (let n = 1; n <= 21; n++) {
+    await page.goto(base + '#/day/' + n + '/1');
+    await page.waitForSelector('.head-flower');
+    assert.strictEqual((await page.textContent('.head-flower .flower-name')).trim(), FLOWER_NAMES[n - 1], 'Day' + n);
+    assert.strictEqual(await page.locator('.head-flower svg[aria-hidden="true"]').count(), 1, '絵は読み上げない');
+  }
+  await page.goto(base + '#/');
+  await page.waitForSelector('.day-list');
+  assert.strictEqual(await page.locator('.day-card .card-flower svg').count(), 21);
+  assert.deepStrictEqual(errors, []);
+  await context.close();
+});
+
+test('FLOWER-03 今日の扉：花・Day・テーマ・今日の小さな理由・今日の実践・目安が最初の画面にあり、扉のボタンが画面内に見える', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/5/1');
+  await page.goto(base + '#/');
+  await page.waitForSelector('.daily-door');
+  const t = await page.textContent('.daily-door');
+  assert.match(t, /DAY 05 \/ 21[\s\S]*今日の花：ガーベラ[\s\S]*今日のテーマ：身近な人の美点[\s\S]*目安 10〜15分[\s\S]*相手をほめる言葉を探すのではなく[\s\S]*今日の小さな実践[\s\S]*ノートに三つ書く/);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const box = await page.locator('#door-open').boundingBox();
+  assert.ok(box.y + box.height <= 800, '扉のボタンが最初の画面（高さ800px）に入る：' + box.y);
+  await context.close();
+});
+
+test('FLOWER-07 「視差効果を減らす」設定では花を動かさない', { skip }, async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 800 }, reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  await consent(page);
+  const anim = await page.evaluate(() => getComputedStyle(document.querySelector('.door-flower .flower')).animationName);
+  assert.strictEqual(anim, 'none');
+  await context.close();
+  const b = await newPage();
+  await consent(b.page);
+  assert.strictEqual(await b.page.evaluate(() => getComputedStyle(document.querySelector('.door-flower .flower')).animationName), 'flower-sway');
+  await b.context.close();
+});
+
+test('FLOWER-08 花の表示は記録・保存の形に影響しない', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  await page.goto(base + '#/day/3/3');
+  await page.fill('#ans-0', 'デザインと関係ない記録');
+  await waitSaved(page);
+  const s = await stored(page);
+  assert.ok(!/flower|花/.test(JSON.stringify(s)), '保存に花の情報が入っていない');
+  await context.close();
+});
+
+test('読みやすさ：主な文字と背景の明るさの差（WCAG 4.5:1 以上）', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  const pairs = await page.evaluate(() => {
+    const css = getComputedStyle(document.documentElement);
+    const v = (n) => css.getPropertyValue(n).trim();
+    const hex = (h) => { h = h.replace('#', ''); return [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16) / 255); };
+    const lum = (h) => { const c = hex(h).map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4))); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+    const bg = v('--beige'), card = v('--white'), light = v('--beige-deep');
+    return {
+      '本文/背景': ratio(v('--ink'), bg), '本文/カード': ratio(v('--ink'), card), '補助/背景': ratio(v('--muted'), bg), '補助/淡黄': ratio(v('--muted'), light),
+      '緑の文字/カード': ratio(v('--green'), card), 'ボタン白文字/緑': ratio(card, v('--green')), '金茶/背景': ratio(v('--gold'), bg),
+    };
+  });
+  for (const [k, r] of Object.entries(pairs)) assert.ok(r >= 4.5, k + ' = ' + r.toFixed(2));
+  await context.close();
+});
+
+test('DATA-FAIL 復元：保存に失敗したら戻さず、いまの記録をそのまま残す', { skip }, async () => {
+  const { context, page } = await failingPage();
+  await consent(page);
+  await page.goto(base + '#/day/6/3');
+  await page.fill('#ans-0', 'いまの記録');
+  await waitSaved(page);
+  await page.evaluate(() => { window.__failSave = true; });
+  const other = { app: 'michiru-21days', schema: 1, consentedAt: new Date().toISOString(), settings: { fontSize: 'm' }, progress: { startedAt: null, lastOpenDay: 1 }, entries: { 1: { answers: ['ファイルの記録'] } } };
+  await page.goto(base + '#/settings');
+  await page.setInputFiles('#import-file', { name: 'o.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(other)) });
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /戻せませんでした/.test(document.getElementById('import-msg').textContent));
+  await page.evaluate(() => { window.__failSave = false; });
+  await page.goto(base + '#/day/6/3');
+  assert.strictEqual(await page.inputValue('#ans-0'), 'いまの記録', '画面の記録も元のまま');
+  const s = await page.evaluate(() => JSON.parse(localStorage.getItem('michiru21.v1')));
+  assert.strictEqual(s.entries[6].answers[0], 'いまの記録');
+  assert.ok(!s.entries[1]);
+  await context.close();
+});

@@ -8,7 +8,7 @@ const { publicContent, readSource } = require('../tools/build-content');
 
 const ROOT = path.join(__dirname, '..');
 const src = readSource();
-const appFiles = ['index.html', 'js/app.js', 'js/store.js', 'js/timer.js', 'js/clock.js', 'js/content.js', 'js/api.js', 'css/app.css']
+const appFiles = ['index.html', 'js/app.js', 'js/store.js', 'js/timer.js', 'js/clock.js', 'js/flowers.js', 'js/content.js', 'js/api.js', 'css/app.css']
   .map((f) => path.join(ROOT, 'app', f)).filter((f) => fs.existsSync(f));
 const appText = appFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 
