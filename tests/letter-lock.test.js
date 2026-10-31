@@ -73,7 +73,7 @@ test('手紙はサーバーで封印し、7日未満は本文を返さず、7日
 test('封印後の書き直し拒否・利用者間分離・アカウント削除で本文消去', async t => {
   const f = await fixture(t);
   let a = await f.enroll('letter-b@example.invalid');
-  const b = await f.enroll('letter-c@example.invalid');
+  let b = await f.enroll('letter-c@example.invalid');
   assert.equal((await f.post('/api/future-letter/seal', { text: '最初の手紙' }, a)).status, 200);
   assert.equal((await f.post('/api/future-letter/seal', { text: '改ざん' }, a)).status, 409);
   assert.equal((await f.post('/api/future-letter/open', {}, b)).status, 404);
@@ -86,6 +86,10 @@ test('封印後の書き直し拒否・利用者間分離・アカウント削�
   assert.equal((await (await f.post('/api/future-letter/open', {}, a)).json()).text, '最初の手紙');
   assert.equal((await f.post('/api/delete-account', {}, a)).status, 200);
   assert.equal((await f.get('/api/future-letter/status', a)).status, 401);
+  // The second user's session also expired during the seven-day clock advance.
+  // Re-authenticate before checking isolation; a 401 error body has no `sealed` field.
+  assert.equal((await f.get('/api/future-letter/status', b)).status, 401);
+  b = await f.login('letter-c@example.invalid');
   assert.equal((await (await f.get('/api/future-letter/status', b)).json()).sealed, false);
 });
 
