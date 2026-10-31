@@ -1,2 +1,7 @@
 node_modules/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.runtime/
 _site/

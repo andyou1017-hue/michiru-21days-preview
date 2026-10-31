@@ -150,8 +150,10 @@
     if (!this.available || this.failed) return this.memory;
     try {
       var txt = window.localStorage.getItem(this.key);
-      return txt ? JSON.parse(txt) : null;
+      this.originalText = txt;
+      return txt === null ? null : JSON.parse(txt);
     } catch (e) {
+      this.readError = true;
       return null;
     }
   };
@@ -187,10 +189,13 @@
     this.status = 'saved';
     var raw = this.backend.read();
     try {
-      this.state = raw ? normalizeState(raw) : emptyState();
+      this.state = this.backend.originalText != null ? normalizeState(raw) : emptyState();
     } catch (e) {
       this.state = emptyState();
+      this.recoveryRequired = true;
     }
+    if (this.backend.readError) this.recoveryRequired = true;
+    if (this.recoveryRequired) this.status = 'recovery';
   }
 
   Store.prototype.onStatus = function (fn) { this.listeners.push(fn); };
@@ -234,11 +239,11 @@
   };
 
   // ログアウト・アカウント削除のあと：端末の記録を消し、以後は保存しない（共用の端末に残さない）
-  Store.prototype.detach = function () {
+  Store.prototype.detach = function (keepLocal) {
     this.detached = true;
     clearTimeout(this.timer);
     clearTimeout(this.retryTimer);
-    this.backend.clear();
+    if (!keepLocal) this.backend.clear();
   };
 
   Store.prototype.localStatus = function (ok) {
@@ -251,6 +256,7 @@
     clearTimeout(this.timer);
     this.timer = null;
     if (this.detached) return false;
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     var ok = this.backend.write(this.state);
     var days = Object.keys(this.dirtyDays);
     if (ok) this.dirtyDays = {};
@@ -297,6 +303,7 @@
   };
 
   Store.prototype.deleteDay = function (day) {
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     var prev = this.state.entries[day];
     delete this.state.entries[day];
     var ok = this.backend.write(this.state);
@@ -309,6 +316,7 @@
   Store.prototype.deleteAll = function () {
     var self = this;
     var prev = this.state;
+    var recovery = this.recoveryRequired;
     var prevDirty = this.dirtyDays;
     var prevPending = this.pendingRemote;
     clearTimeout(this.timer);
@@ -322,6 +330,7 @@
     var cleared = this.backend.clear();
     var written = this.backend.write(this.state);
     var ok = cleared || written;
+    if (ok) this.recoveryRequired = false;
     if (!ok) {
       this.state = prev; this.backend.write(prev);
       this.dirtyDays = prevDirty; this.pendingRemote = prevPending;
@@ -337,6 +346,7 @@
       // サーバーに残ったまま削除完了画面へ進めない。記録を戻して再試行できるようにする。
       if (!self.detached) {
         self.state = prev; self.backend.write(prev);
+        self.recoveryRequired = recovery;
         self.dirtyDays = prevDirty; self.pendingRemote = prevPending;
         self.setStatus('error');
       }
@@ -440,6 +450,7 @@
   };
 
   Store.prototype.exportBackup = function () {
+    if (this.recoveryRequired) throw new Error('元のデータを退避するか、バックアップから記録を戻してください。');
     this.flush();
     var copy = JSON.parse(JSON.stringify(this.state));
     copy.exportedAt = now();
@@ -461,10 +472,13 @@
   Store.prototype.importBackup = function (raw) {
     var s = normalizeState(raw);
     var prev = this.state;
+    var recovery = this.recoveryRequired;
+    this.recoveryRequired = false;
     this.state = s;
     for (var d = 1; d <= 21; d++) this.dirtyDays[d] = true;
     if (!this.flush()) { // 保存できなかったら、元の記録のままにする（画面と端末の中身を食い違わせない）
       this.state = prev;
+      this.recoveryRequired = recovery;
       this.dirtyDays = {};
       this.backend.memory = JSON.parse(JSON.stringify(prev));
       return false;
@@ -474,6 +488,7 @@
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
   Store.prototype.mergeRemote = function (remoteEntries) {
+    if (this.recoveryRequired) { this.setStatus('recovery'); return; }
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];

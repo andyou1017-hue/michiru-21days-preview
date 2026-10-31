@@ -4,11 +4,12 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-function setup(remote) {
+function setup(remote, initial) {
   const values = new Map();
+  if (initial !== undefined) values.set('michiru21.v1', initial);
   let fail = false;
   const storage = {
-    getItem: k => values.get(k) || null,
+    getItem: k => values.has(k) ? values.get(k) : null,
     setItem(k, v) { if (fail) throw Error('quota'); values.set(k, v); },
     removeItem(k) { values.delete(k); }
   };
@@ -18,6 +19,44 @@ function setup(remote) {
   return { store, fail: v => { fail = v; }, values };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test('壊れたJSON・未対応形式は起動と保存を繰り返しても上書きしない', () => {
+  for (const original of ['{"entries":', '', 'null', 'false', '{"app":"michiru-21days","schema":2,"futureLetter":{"text":"未来版"}}']) {
+    const { store, values } = setup(null, original);
+    assert.equal(store.recoveryRequired, true);
+    store.noteDeviceTime();
+    assert.equal(store.flush(), false);
+    assert.equal(store.deleteDay(1), false);
+    store.mergeRemote({});
+    assert.equal(values.get('michiru21.v1'), original);
+    assert.equal(store.backend.originalText, original);
+    assert.equal(store.status, 'recovery');
+    assert.throws(() => store.exportBackup());
+  }
+});
+test('復旧中も明示的なバックアップ復元に成功すれば通常保存へ戻る', () => {
+  const clean = setup().store;
+  clean.addDiscovery(1, '大切な発見');
+  const backup = clean.exportBackup();
+  const { store, values } = setup(null, 'broken');
+  assert.equal(store.importBackup(backup), true);
+  assert.equal(store.recoveryRequired, false);
+  assert.equal(JSON.parse(values.get('michiru21.v1')).discoveries[0].text, '大切な発見');
+});
+test('復旧中の復元で容量不足なら、元の文字列と保護状態を維持する', () => {
+  const backup = setup().store.exportBackup();
+  const { store, values, fail } = setup(null, 'broken');
+  fail(true);
+  assert.equal(store.importBackup(backup), false);
+  assert.equal(store.recoveryRequired, true);
+  assert.equal(store.flush(), false);
+  assert.equal(values.get('michiru21.v1'), 'broken');
+});
+test('復旧中に利用者が明示的に全削除したら、新しく始められる', async () => {
+  const { store, values } = setup(null, 'broken');
+  assert.equal(await store.deleteAll(), true);
+  assert.equal(store.recoveryRequired, false);
+  assert.equal(JSON.parse(values.get('michiru21.v1')).app, 'michiru-21days');
+});
 test('保存失敗後に再試行すると、日別の送信も失われない', async () => {
   const sent = [];
   const { store, fail } = setup({ pushEntry: async (d, e) => sent.push(e.reflection) });

@@ -16,6 +16,7 @@
     saved: '保存しました',
     saving: '保存中…',
     memory: 'この端末に保存できません（画面を閉じると消えます）',
+    recovery: '記録を読み取れません。元データを保護しています',
     error: '保存できませんでした。画面を閉じる前に「設定」からファイルに保存してください',
     offline: '端末には保存済み。通信が戻ったら送信します'
   };
@@ -53,7 +54,17 @@
         if (back && back.focus) back.focus();
         resolve(v);
       }
-      function onKey(ev) { if (ev.key === 'Escape') done(false); }
+      function onKey(ev) {
+        if (ev.key === 'Escape') { ev.preventDefault(); done(false); return; }
+        if (ev.key !== 'Tab') return;
+        var first = wrap.querySelector('#confirm-cancel');
+        var last = wrap.querySelector('#confirm-ok');
+        if (ev.shiftKey && (document.activeElement === first || !wrap.contains(document.activeElement))) {
+          ev.preventDefault(); last.focus();
+        } else if (!ev.shiftKey && (document.activeElement === last || !wrap.contains(document.activeElement))) {
+          ev.preventDefault(); first.focus();
+        }
+      }
       document.addEventListener('keydown', onKey);
       wrap.querySelector('#confirm-cancel').addEventListener('click', function () { done(false); });
       wrap.querySelector('#confirm-ok').addEventListener('click', function () { done(true); });
@@ -63,7 +74,7 @@
   function moodText(v) { return v === null || v === undefined ? '未記録' : String(v); }
 
   function pauseNote(st) {
-    return st === 'error' || st === 'memory' ? '（いまは端末に保存できていません。右上の表示をご確認ください）'
+    return st === 'error' || st === 'memory' || st === 'recovery' ? '（いまは端末に保存できていません。右上の表示をご確認ください）'
       : '（ここまでの記録は、この端末に保存されます。いつでも続きから再開できます）';
   }
   function showStatus(s) {
@@ -107,12 +118,12 @@
   }
 
   function privacyHtml() {
-    if (api) {
+    if (api && !(window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.localOnly)) {
       return '<ul class="notice"><li>記録は、あなたのアカウントにだけ保存されます。運営者があなたの書いた文章を、同意なく読んだり公開したりすることはありません。</li>' +
         '<li>記録は「設定」からファイルに保存したり、すべて削除したりできます。</li>' +
         '<li>病名や治療の内容、他の人が特定できる情報は書かないでください。</li></ul>';
     }
-    return '<ul class="notice"><li>これは試作版です。記録はこの端末のブラウザの中にだけ保存され、外部には送信されません。</li>' +
+    return '<ul class="notice"><li>' + (api ? '記録はログインした利用者ごとに、この端末のブラウザの中だけに保存されます。自動同期はありません。ログアウトしても記録は残り、同じアカウントで再開できます。' : 'これは試作版です。記録はこの端末のブラウザの中にだけ保存され、外部には送信されません。') + '</li>' +
       '<li>ブラウザの履歴やデータを消すと、記録も消えます。「設定」からファイルに保存（バックアップ）できます。</li>' +
       '<li>病名や治療の内容、他の人が特定できる情報など、機微な情報は入力しないでください。</li></ul>';
   }
@@ -685,7 +696,8 @@
   // 今日の扉に出す「今日の小さな理由」（ワークの画面と同じ文）
   function doorGuideHtml(n) {
     var g = C.mini_guides, t = g && g.days && g.days[n];
-    return t ? '<p class="door-guide">' + esc(t) + '</p>' : '';
+    return t ? '<p class="door-guide">' + esc(t) +
+      (g.status === 'draft' ? '<br><span class="draft-mark">（確認中の文章です）</span>' : '') + '</p>' : '';
   }
 
   // ワークの前の「今日の小さな理由」（2〜3文）。読まずにすぐワークに進めるよう、折りたためる
@@ -848,13 +860,20 @@
 
   // ---------- 画面：設定（S10） ----------
   function renderSettings() {
+    if (store.recoveryRequired && location.hash !== '#/settings') history.replaceState(null, '', '#/settings');
     setTitle('設定');
     var fs = store.state.settings.fontSize;
     function fsBtn(v, label) { return '<button type="button" class="btn small" data-fs="' + v + '" aria-pressed="' + (fs === v) + '">' + label + '</button>'; }
     view.innerHTML = '<section class="settings"><h1>設定</h1>' +
+      (store.recoveryRequired ? '<section class="card" aria-labelledby="recovery-title"><h2 id="recovery-title">記録を読み取れませんでした</h2>' +
+        '<p>元のデータを上書きせずに保護しています。まず退避用ファイルを保存し、お持ちのバックアップから記録を戻してください。</p>' +
+        '<p>退避用ファイルは、そのまま復元できるとは限りません。書いた文章が含まれるため、大切に保管してください。</p>' +
+        (typeof store.backend.originalText === 'string' ? '<p><button type="button" class="btn" id="export-recovery">元のデータを退避する</button></p>' :
+          '<p>ブラウザの保存領域を読み取れません。ブラウザのデータを消さずに、端末の設定を確認してから開き直してください。</p>') +
+        '<p>バックアップがなく、最初から始める場合だけ、下の「すべての記録を削除」を選んでください。</p></section>' : '') +
       '<h2>文字の大きさ</h2><p class="row">' + fsBtn('s', '小') + fsBtn('m', '標準') + fsBtn('l', '大') + fsBtn('xl', '特大') + '</p>' +
       '<h2>バックアップ</h2><p class="muted">記録をファイルにして保存できます。機種変更のときや、念のための保管に使ってください。ファイルには書いた文章が入っています。取り扱いに気をつけてください。</p>' +
-      '<p class="row"><button type="button" class="btn" id="export">記録をファイルに保存</button>' +
+      '<p class="row"><button type="button" class="btn" id="export"' + (store.recoveryRequired ? ' disabled' : '') + '>記録をファイルに保存</button>' +
       '<label class="btn" for="import-file">ファイルから記録を戻す</label><input type="file" id="import-file" accept="application/json,.json" class="sr-only"></p>' +
       '<p id="import-msg" role="status"></p>' +
       '<h2>記録の削除</h2><p><button type="button" class="btn danger" id="delete-all">すべての記録を削除</button></p>' +
@@ -866,20 +885,28 @@
       '<p><a href="#/intro">はじめにの説明をもう一度読む</a></p></section>';
 
     Array.prototype.forEach.call(view.querySelectorAll('[data-fs]'), function (b) {
+      b.disabled = !!store.recoveryRequired;
       b.addEventListener('click', function () {
         store.setMeta(function (s) { s.settings.fontSize = b.getAttribute('data-fs'); });
         applyFont(); renderSettings();
       });
     });
-    document.getElementById('export').addEventListener('click', function () {
-      var data = JSON.stringify(store.exportBackup(), null, 2);
-      var blob = new Blob([data], { type: 'application/json' });
+    function download(text, filename) {
+      var blob = new Blob([text], { type: 'application/json' });
       var a = document.createElement('a');
-      var d = new Date();
       a.href = URL.createObjectURL(blob);
-      a.download = 'michiru-21days-backup-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json';
+      a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }
+    var recoveryButton = document.getElementById('export-recovery');
+    if (recoveryButton) recoveryButton.addEventListener('click', function () {
+      download(store.backend.originalText, 'michiru-21days-recovery-' + Date.now() + '.json');
+    });
+    document.getElementById('export').addEventListener('click', function () {
+      var data = JSON.stringify(store.exportBackup(), null, 2);
+      var d = new Date();
+      download(data, 'michiru-21days-backup-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json');
     });
     document.getElementById('import-file').addEventListener('change', function (ev) {
       var f = ev.target.files[0];
@@ -903,8 +930,10 @@
             'ファイル' + (at ? '（' + at.getFullYear() + '/' + (at.getMonth() + 1) + '/' + at.getDate() + ' に保存）' : '') + '：' + line(incoming) + '\n' +
             'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
+            var recovering = store.recoveryRequired;
             if (!store.importBackup(raw)) { msg.textContent = '端末に保存できなかったため、記録を戻せませんでした（いまの記録はそのままです）。'; return; }
             applyFont();
+            if (recovering) { renderSettings(); msg = document.getElementById('import-msg'); }
             msg.textContent = '記録を戻しました。';
           });
         } catch (e) {
@@ -913,6 +942,10 @@
         ev.target.value = '';
       };
       r.readAsText(f);
+      r.onerror = function () {
+        msg.textContent = 'ファイルを読み取れませんでした。端末にダウンロードされているか確認して、もう一度選んでください。';
+        ev.target.value = '';
+      };
     });
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
@@ -933,7 +966,7 @@
     if (!api || !account) return;
     document.getElementById('logout').addEventListener('click', function () {
       store.flush();
-      api.logout().then(function () { store.detach(); location.reload(); });
+      api.logout().then(function () { store.detach(!!(window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.localOnly)); location.reload(); });
     });
     document.getElementById('delete-account').addEventListener('click', function () {
       askConfirm('アカウントと、サーバーに保存したすべての記録を削除します。元に戻せません。', 'アカウントを削除する').then(function (ok) {
@@ -953,6 +986,7 @@
     letterPrepDone = false;
     store.noteDeviceTime();
     store.flush();
+    if (store.recoveryRequired) return renderSettings();
     var h = location.hash.replace(/^#/, '') || '/';
     var parts = h.split('/').filter(Boolean);
     updateNav(parts[0] || '');
@@ -1001,11 +1035,13 @@
         return;
       }
       api = window.MichiruApi;
-      api.boot(view).then(function (res) {
+      Promise.resolve().then(function () { return api.boot(view); }).then(function (res) {
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
         var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: api.remote() });
-        s.mergeRemote(res.entries);
+        if (s.remote) s.mergeRemote(res.entries);
+      }).catch(function () {
+        view.textContent = '認証を確認できませんでした。通信を確認して、もう一度開いてください。';
       });
       return;
     }

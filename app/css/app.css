@@ -51,7 +51,7 @@ a { color: var(--green); }
 .brand { font-family: var(--serif); color: var(--ink); text-decoration: none; font-weight: 600; display: flex; flex-direction: column; line-height: 1.3; }
 .brand span { font-size: .75rem; color: var(--muted); font-weight: 400; }
 .save-status { margin: 0; font-size: .75rem; color: var(--muted); text-align: right; max-width: 55%; }
-.save-status[data-state="memory"], .save-status[data-state="offline"], .save-status[data-state="error"] { color: var(--danger); font-weight: 700; }
+.save-status[data-state="memory"], .save-status[data-state="offline"], .save-status[data-state="error"], .save-status[data-state="recovery"] { color: var(--danger); font-weight: 700; }
 
 .view { max-width: 680px; margin: 0 auto; padding: 16px; }
 .view:focus { outline: none; }
@@ -103,6 +103,7 @@ a { color: var(--green); }
 .story { border-left: 4px solid var(--gold); padding: 4px 12px; margin-bottom: 12px; font-family: var(--serif); }
 .story .label { font-family: var(--sans); font-size: .85rem; color: var(--gold); margin: 0; }
 .field { margin: 14px 0; }
+#login-form input { display: block; width: 100%; min-height: 48px; font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
 .field label { display: block; font-weight: 600; margin-bottom: 4px; }
 textarea {
   width: 100%; max-width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;

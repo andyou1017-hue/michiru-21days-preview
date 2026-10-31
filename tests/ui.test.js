@@ -5,8 +5,9 @@ const assert = require('node:assert');
 const path = require('path');
 const { createStaticServer } = require('../tools/static-server');
 
+const BROWSER = process.env.PW_BROWSER || 'chromium';
 let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { chromium = null; }
+try { chromium = require('playwright')[BROWSER]; } catch (e) { chromium = null; }
 
 const EXEC = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const skip = chromium ? false : 'playwright が見つからないため省略';
@@ -21,7 +22,7 @@ test.before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port + '/';
   const fs = require('fs');
-  browser = await chromium.launch(fs.existsSync(EXEC) ? { executablePath: EXEC } : {});
+  browser = await chromium.launch(BROWSER === 'chromium' && fs.existsSync(EXEC) ? { executablePath: EXEC } : {});
 });
 test.after(async () => {
   if (browser) await browser.close();
@@ -58,6 +59,80 @@ test('本番設定で認証APIが欠けた場合、試作教材へフォール�
   await page.goto(base);
   assert.match(await page.textContent('#view'), /認証を読み込めませんでした/);
   assert.equal(await page.locator('#start, .day-list, textarea').count(), 0);
+  await context.close();
+});
+
+test('RECOVERY 読めない記録を上書きせず、元データを退避してバックアップから戻せる', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  const original = '{"entries":{"1":{"reflection":"大切な記録"';
+  await page.addInitScript(value => {
+    if (!sessionStorage.getItem('recovery-seeded')) {
+      localStorage.setItem('michiru21.v1', value); sessionStorage.setItem('recovery-seeded', '1');
+    }
+  }, original);
+  await page.goto(base);
+  await page.waitForSelector('#recovery-title');
+  assert.equal(await page.isDisabled('#export'), true);
+  assert.equal(await page.locator('textarea').count(), 0);
+  await page.goto(base + '#/day/1/3');
+  await page.waitForSelector('#recovery-title');
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#export-recovery')]);
+  assert.equal(require('fs').readFileSync(await download.path(), 'utf8'), original);
+  const backup = { app: 'michiru-21days', schema: 1, consentedAt: new Date().toISOString(), entries: { 1: { answers: ['復元する記録'] } }, discoveries: [{ id: 'd1', text: '発見', day: 1 }], futureReplies: { 7: { text: '返信' } } };
+  await page.setInputFiles('#import-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.click('#confirm-cancel');
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  await page.setInputFiles('#import-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  assert.equal(await page.locator('#recovery-title').count(), 0);
+  assert.equal(await page.isEnabled('#export'), true);
+  assert.equal((await stored(page)).futureReplies[7].text, '返信');
+  await page.goto(base + '#/day/1/3');
+  assert.equal(await page.inputValue('#ans-0'), '復元する記録');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('RECOVERY 未対応形式では案内し、明示的な全削除で新しく始められる', { skip }, async () => {
+  const { context, page } = await newPage();
+  const original = JSON.stringify({ app: 'michiru-21days', schema: 2, futureLetter: { text: '未来の記録' } });
+  await page.addInitScript(value => {
+    if (!sessionStorage.getItem('recovery-seeded')) {
+      localStorage.setItem('michiru21.v1', value); sessionStorage.setItem('recovery-seeded', '1');
+    }
+  }, original);
+  await page.goto(base);
+  await page.waitForSelector('#recovery-title');
+  await page.click('#delete-all'); await page.click('#confirm-cancel');
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  await page.click('#delete-all'); await page.click('#confirm-ok');
+  await page.waitForSelector('#agree');
+  assert.deepEqual((await stored(page)).entries, {});
+  await context.close();
+});
+
+test('確認ダイアログのTab移動を内側に保ち、Escapeで元のボタンへ戻る', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page); await page.goto(base + '#/settings');
+  await page.click('#delete-all');
+  await page.waitForSelector('#confirm-cancel:focus');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.locator('#confirm-ok').evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#confirm-cancel').evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.confirm').count(), 0);
+  assert.equal(await page.locator('#delete-all').evaluate(el => el === document.activeElement), true);
+  await context.close();
+});
+
+test('ホームでも草案のミニ解説に確認中の注記を表示する', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  assert.match(await page.textContent('.door-guide .draft-mark'), /確認中/);
   await context.close();
 });
 
