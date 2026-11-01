@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { DatabaseSync } = require('node:sqlite');
 const { publicContent, readSource } = require('../tools/build-content');
+const { assertPrivatePath } = require('./private-path');
 const scrypt = promisify(crypto.scrypt);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -19,10 +20,11 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
   if (url.origin !== origin || (url.protocol !== 'https:' && !(development && url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)))) {
     throw Error('本番では正確なHTTPS originが必要です。');
   }
-  if (!databasePath || !path.isAbsolute(databasePath)) throw Error('DBには絶対パスを指定してください。');
+  assertPrivatePath(databasePath);
   const appRoot = path.resolve(__dirname, '../app');
-  if (databasePath === appRoot || databasePath.startsWith(appRoot + path.sep)) throw Error('公開ファイルの中へDBを置けません。');
   fs.mkdirSync(path.dirname(databasePath), { recursive: true, mode: 0o700 });
+  // Resolve symlinked parent directories before opening any personal-data DB.
+  assertPrivatePath(databasePath);
   // WAL等の補助ファイルも所有者だけが読めるようにする。
   process.umask(0o077);
   const db = new DatabaseSync(databasePath);
