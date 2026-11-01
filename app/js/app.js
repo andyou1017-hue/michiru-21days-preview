@@ -15,7 +15,7 @@
   var view = document.getElementById('view');
   var statusEl = document.getElementById('save-status');
 
-  var STEPS = ['朝の気分', '33秒の静かな時間', '今日のお話と問い', '今日の行動', '夜のふりかえり'];
+  var STEPS = ['朝の気分', '命の瞑想（33秒）', '今日のお話と問い', '今日の行動', '夜のふりかえり'];
   var STATUS_TEXT = {
     saved: '保存しました',
     saving: '保存中…',
@@ -585,7 +585,7 @@
       '<section class="letter-prep" aria-labelledby="prep-title"><h3 id="prep-title">書く前に、心を整えましょう</h3>' +
       '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。音声や静かな時間を選べます。</p>' +
       futureGuidanceHtml() +
-      '<p class="row"><button type="button" class="btn" id="prep-33">33秒の静かな時間</button>' +
+      '<p class="row"><button type="button" class="btn" id="prep-33">命の瞑想（33秒）</button>' +
       '<button type="button" class="btn" id="prep-thanks">感謝の瞑想（約1分）</button></p>' +
       '<div id="prep-player" hidden><div class="timer" aria-live="polite"><span id="prep-sec" class="t-sec"></span><span class="t-unit">秒</span></div>' +
       '<p id="prep-guide" class="t-guide"></p>' +
