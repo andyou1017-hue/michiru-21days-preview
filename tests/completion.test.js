@@ -108,7 +108,7 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     finally { gateway.server.removeListener('request', rejectConnection); handlers.forEach(handler => gateway.server.on('request', handler)); }
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
-    await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
+    await page.reload(); await page.waitForSelector('#ans-0');
     assert.equal(await page.inputValue('#ans-0'), 'PWA再開用の記録');
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
