@@ -63,3 +63,34 @@ test('公開リポジトリ内への暗号化出力・復元を拒否する', as
   await exportEncryptedBackup(f.source, f.encrypted, passphrase);
   await assert.rejects(restoreEncryptedBackup(f.encrypted, path.join(repoRoot, 'never-restore-db.sqlite'), passphrase), /リポジトリ/);
 });
+
+// Simulate a filesystem refusing the final atomic publication after staging succeeded.
+// Neither encrypted exports nor plaintext recovery destinations may appear half-written.
+test('公開段階の失敗で部分ファイルを公開しない・一時ファイルを片付ける', async t => {
+  const f = fixture(t);
+  t.after(() => f.db.close());
+  const originalLink = fs.linkSync;
+  function failPublication() {
+    throw Object.assign(new Error('synthetic atomic publication failure'), { code: 'EIO' });
+  }
+  try {
+    fs.linkSync = failPublication;
+    await assert.rejects(exportEncryptedBackup(f.source, f.encrypted, passphrase), /synthetic atomic publication failure/);
+  } finally {
+    fs.linkSync = originalLink;
+  }
+  assert.equal(fs.existsSync(f.encrypted), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.encrypted)), []);
+
+  await exportEncryptedBackup(f.source, f.encrypted, passphrase);
+  try {
+    fs.linkSync = failPublication;
+    await assert.rejects(restoreEncryptedBackup(f.encrypted, f.restored, passphrase), /synthetic atomic publication failure/);
+  } finally {
+    fs.linkSync = originalLink;
+  }
+  assert.equal(fs.existsSync(f.restored), false);
+  assert.equal(fs.readdirSync(f.dir).some(name => name.startsWith('.michiru-publish-')), false);
+  await restoreEncryptedBackup(f.encrypted, f.restored, passphrase);
+  assert.equal(fs.statSync(f.restored).mode & 0o777, 0o600);
+});
