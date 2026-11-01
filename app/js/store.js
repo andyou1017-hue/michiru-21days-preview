@@ -395,8 +395,16 @@
   Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && (this.state.futureLetter.text.trim() || (this.state.futureLetter.server_managed && this.state.futureLetter.sealed_at))); };
   Store.prototype.setServerLetter = function (status) {
     if (!status || !status.sealed) return false;
+    // The server has the sealed body, but local metadata must not replace an unsaved draft
+    // until the device confirms its write. Keep the draft available for recovery on failure.
+    var previousLetter = this.state.futureLetter;
     this.state.futureLetter = { text: '', written_at: status.sealedAt, updated_at: status.sealedAt, sealed_at: status.sealedAt, sealed_trusted_at: status.sealedAt, opened_at: status.openedAt || null, server_managed: true };
-    return this.flush();
+    if (!this.flush()) {
+      this.state.futureLetter = previousLetter;
+      this.backend.memory = JSON.parse(JSON.stringify(this.state));
+      return false;
+    }
+    return true;
   };
   Store.prototype.isSealed = function () { return !!(this.hasFutureLetter() && this.state.futureLetter.sealed_at); };
   Store.prototype.isOpened = function () { return !!(this.isSealed() && this.state.futureLetter.opened_at); };
@@ -510,16 +518,30 @@
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
   Store.prototype.mergeRemote = function (remoteEntries) {
-    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
+    if (this.recoveryRequired || this.detached) { this.setStatus('recovery'); return false; }
+    // Reconcile in a copy. If local persistence fails, neither imported entries nor
+    // newly queued uploads may survive in memory or be sent by a later retry.
+    var previousEntries = this.state.entries;
+    var previousPending = this.pendingRemote;
+    var previousRevision = this.remoteRevision;
+    this.state.entries = Object.assign({}, previousEntries);
+    this.pendingRemote = Object.assign({}, previousPending);
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];
       if (r && (!l || (r.updated_at || '') > (l.updated_at || ''))) this.state.entries[d] = r;
       else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = ++this.remoteRevision;
     }
-    if (this.backend.write(this.state)) { this.pushRemote(); return true; }
-    this.setStatus(this.localStatus(false));
-    return false;
+    if (!this.backend.write(this.state)) {
+      this.state.entries = previousEntries;
+      this.pendingRemote = previousPending;
+      this.remoteRevision = previousRevision;
+      this.backend.memory = JSON.parse(JSON.stringify(this.state));
+      this.setStatus(this.localStatus(false));
+      return false;
+    }
+    this.pushRemote();
+    return true;
   };
 
   window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };
