@@ -1,0 +1,42 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { createStaticServer } = require('../tools/static-server');
+let chromium; try { chromium = require('playwright').chromium; } catch (_) {}
+
+test('受講生用Day1は朝夜スライダー・ワーク記入・行動・ふりかえりを保存し再表示する', { skip: !chromium && 'Playwrightがないため実画面を確認できません' }, async t => {
+  const server = createStaticServer(path.join(__dirname, '..', 'app'));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({viewport:{width:375,height:812},isMobile:true,hasTouch:true});
+  const url = 'http://127.0.0.1:' + server.address().port + '/';
+  await page.goto(url);
+  await page.check('#agree');
+  await page.click('#start');
+  await page.goto(url + '#/day/1/1');
+  await page.locator('#mood-am').fill('8');
+  assert.equal(await page.locator('#mood-am').inputValue(), '8');
+  await page.goto(url + '#/day/1/3');
+  assert.ok(await page.locator('.mini-guide').count());
+  const answer = page.locator('#ans-0');
+  assert.ok(await answer.count(), 'ワークの記入欄');
+  await answer.fill('今日の美点を見つけた');
+  await page.goto(url + '#/day/1/4');
+  await page.locator('#act').fill('今日の小さな行動');
+  await page.goto(url + '#/day/1/5');
+  await page.locator('#mood-pm').fill('7');
+  await page.locator('#refl').fill('今日の発見');
+  await page.reload();
+  await page.goto(url + '#/day/1/1');
+  assert.equal(await page.locator('#mood-am').inputValue(), '8');
+  await page.goto(url + '#/day/1/3');
+  assert.equal(await page.locator('#ans-0').inputValue(), '今日の美点を見つけた');
+  await page.goto(url + '#/day/1/4');
+  assert.equal(await page.locator('#act').inputValue(), '今日の小さな行動');
+  await page.goto(url + '#/day/1/5');
+  assert.equal(await page.locator('#mood-pm').inputValue(), '7');
+  assert.equal(await page.locator('#refl').inputValue(), '今日の発見');
+});
