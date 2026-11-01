@@ -235,7 +235,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
       if (pathname === '/') {
         const html = fs.readFileSync(path.join(appRoot, 'index.html'), 'utf8')
           .replace('<script src="js/content.js"></script>', '')
-          .replace('<!--CONFIG-->', `<script nonce="${nonce}">window.MICHIRU_CONFIG={server:true,localOnly:true};</script><script src="js/api.js"></script>`);
+          .replace('<!--CONFIG-->', `<script nonce="${nonce}">window.MICHIRU_CONFIG={server:true,localOnly:false};</script><script src="js/api.js"></script>`);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(html);
       }
       if (pathname === '/js/api.js') return serve(res, path.join(__dirname, 'api.js'), 'text/javascript; charset=utf-8');
