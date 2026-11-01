@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main, proposal/engaging-21days-ux]
   push:
-    branches: ['codex/**']
+    branches: ['codex/**', 'chatgpt/**']
 permissions:
   contents: read
 jobs:

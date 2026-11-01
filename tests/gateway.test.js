@@ -117,7 +117,9 @@ test('認証後にもソース・DB・生成教材へのアクセスを拒否す
   for (const route of ['/private.sqlite', '/runtime/gateway.js', '/js/content.js']) assert.equal((await fetch(base + route, { headers: { Cookie: cookie } })).status, 404);
   const r = await fetch(base, { headers: { Cookie: cookie } });
   const html = await r.text();
-  assert.match(html, /localOnly:true/); assert.doesNotMatch(html, /src="js\/content.js"/);
+  // 招待制のログイン後はサーバー保存モード。旧localOnly:trueの期待値は誤り。
+  assert.match(html, /MICHIRU_CONFIG=\{server:true,localOnly:false\}/);
+  assert.doesNotMatch(html, /src="js\/content.js"/);
   assert.equal(r.headers.get('cache-control'), 'no-store');
   assert.match(r.headers.get('content-security-policy'), /frame-ancestors 'none'/);
 });

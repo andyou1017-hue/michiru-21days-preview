@@ -116,7 +116,13 @@
       start.addEventListener('click', function () {
         store.setMeta(function (s) { s.consentedAt = new Date().toISOString(); });
         store.flush();
-        if (api) api.consent(); // 本番：同意を記録する
+        // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
+        if (api) {
+          store.remote = api.remote();
+          api.boot().then(function (res) {
+            if (res && !store.detached) store.mergeRemote(res.entries);
+          }).catch(function () { store.setStatus('offline'); });
+        }
         go('#/');
       });
     }
@@ -1172,8 +1178,12 @@
       Promise.resolve().then(function () { return api.boot(view); }).then(function (res) {
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
-        var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: api.remote() });
-        if (s.remote) s.mergeRemote(res.entries);
+        // はじめにの記録取扱いへの同意前は、既存の端末記録も同期しない。
+        var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: null });
+        if (s.state.consentedAt) {
+          s.remote = api.remote();
+          s.mergeRemote(res.entries);
+        }
       }).catch(function () {
         view.textContent = '認証を確認できませんでした。通信を確認して、もう一度開いてください。';
       });
