@@ -84,3 +84,37 @@ test('同じ端末で別の招待アカウントへ切り替えても他人の�
   await page.goto(base + '/#/day/1/3'); assert.equal(await page.inputValue('#ans-0'), '');
   await context.close();
 });
+
+test('初回同意前の端末記録はサーバーへ送らず、同意後に同期する', { skip }, async () => {
+  const context = await browser.newContext(), page = await context.newPage();
+  const email = 'consent-gate@example.invalid';
+  await page.goto(base);
+  await page.fill('#email', email);
+  await page.fill('#password', 'a-long-test-passphrase');
+  await page.fill('#invite', gateway.createInvite(email));
+  await page.click('#submit');
+  await page.waitForSelector('#agree');
+  const bootstrap = await page.evaluate(() => fetch('/api/bootstrap').then(r => r.json()));
+  const key = 'michiru21.u.' + bootstrap.account.id;
+  // バックアップから復元した未同意の記録が端末に存在する状況を再現する。
+  await page.evaluate(({ key }) => {
+    localStorage.setItem(key, JSON.stringify({
+      app: 'michiru-21days', schema: 1, consentedAt: null,
+      entries: { 1: { answers: ['同意後に同期する記録'] } }
+    }));
+  }, { key });
+  await page.reload();
+  await page.waitForSelector('#agree');
+  await page.waitForTimeout(400);
+  const before = await page.evaluate(() => fetch('/api/bootstrap').then(r => r.json()));
+  assert.deepEqual(before.entries, {}, '同意前はサーバーへ送信しない');
+  await page.check('#agree');
+  await page.click('#start');
+  await page.waitForFunction(async () => {
+    const r = await fetch('/api/bootstrap');
+    if (!r.ok) return false;
+    const data = await r.json();
+    return data.entries['1']?.answers?.[0] === '同意後に同期する記録';
+  }, null, { timeout: 10000 });
+  await context.close();
+});

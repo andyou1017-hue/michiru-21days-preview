@@ -68,12 +68,12 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(value));
   }
-  async function body(req) {
+  async function body(req, limit = 256 * 1024) {
     if (!(req.headers['content-type'] || '').startsWith('application/json')) throw Object.assign(Error(), { status: 415 });
     let text = '';
     for await (const chunk of req) {
       text += chunk;
-      if (Buffer.byteLength(text) > 8192) throw Object.assign(Error(), { status: 413 });
+      if (Buffer.byteLength(text) > limit) throw Object.assign(Error(), { status: 413 });
     }
     try {
       const value = JSON.parse(text);
@@ -105,6 +105,10 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     }
     return result;
   }
+  function letterInfo(accountId) {
+    const letter = db.prepare('SELECT sealed_at,opened_at FROM future_letters WHERE account=?').get(accountId);
+    return letter ? { sealed: true, sealedAt: new Date(letter.sealed_at).toISOString(), unlockAt: new Date(letter.sealed_at + 7 * 86400000).toISOString(), available: now() >= letter.sealed_at + 7 * 86400000, opened: letter.opened_at !== null, openedAt: letter.opened_at === null ? null : new Date(letter.opened_at).toISOString() } : { sealed: false };
+  }
   function serve(res, filename, type) {
     res.writeHead(200, { 'Content-Type': type });
     res.end(fs.readFileSync(filename));
@@ -119,6 +123,8 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     try {
       if (req.headers.host !== url.host) return send(res, 400, { error: '接続先を確認してください。' });
       const pathname = new URL(req.url, origin).pathname;
+      const publicAssets = { '/manifest.webmanifest': 'application/manifest+json', '/sw.js': 'text/javascript', '/js/pwa.js': 'text/javascript', '/offline.html': 'text/html; charset=utf-8', '/icons/icon-192.png': 'image/png', '/icons/icon-512.png': 'image/png', '/icons/apple-touch-icon.png': 'image/png' };
+      if (req.method === 'GET' && publicAssets[pathname]) return serve(res, path.join(appRoot, pathname), publicAssets[pathname]);
       if (req.method === 'GET' && pathname === '/healthz') {
         db.prepare('SELECT 1').get();
         return send(res, 200, { ok: true });
@@ -126,7 +132,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
       if (req.method === 'POST' && req.headers.origin !== origin) return send(res, 403, { error: 'この操作は許可されていません。' });
       if (req.method === 'POST' && ['/api/login', '/api/enroll'].includes(pathname)) {
         if (limited('ip:' + hash(req.socket.remoteAddress || ''), 60)) return send(res, 429, { error: 'しばらく待ってから、もう一度お試しください。' });
-        const input = await body(req), email = emailOf(input.email);
+        const input = await body(req, 8192), email = emailOf(input.email);
         if (!email || email.length > 254 || typeof input.password !== 'string' || input.password.length < 12 || input.password.length > 128) return send(res, 401, { error: LOGIN_ERROR });
         if (limited('email:' + hash(email), 10)) return send(res, 429, { error: 'しばらく待ってから、もう一度お試しください。' });
         let account;
@@ -201,7 +207,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         if (!letter) return send(res, 200, { sealed: false });
         return send(res, 200, { sealed: true, sealedAt: new Date(letter.sealed_at).toISOString(),
           unlockAt: new Date(letter.sealed_at + 7 * 86400000).toISOString(),
-          available: now() >= letter.sealed_at + 7 * 86400000, opened: letter.opened_at !== null });
+          available: now() >= letter.sealed_at + 7 * 86400000, opened: letter.opened_at !== null, openedAt: letter.opened_at === null ? null : new Date(letter.opened_at).toISOString() });
       }
       if (req.method === 'POST' && pathname === '/api/future-letter/open') {
         const letter = db.prepare('SELECT body,sealed_at,opened_at FROM future_letters WHERE account=?').get(account.id);
@@ -227,10 +233,12 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         return send(res, 200, { ok: true });
       }
       if (req.method === 'POST' && pathname === '/api/entries/delete-all') {
-        db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+        db.exec('BEGIN IMMEDIATE');
+        try { db.prepare('DELETE FROM entries WHERE account=?').run(account.id); db.prepare('DELETE FROM future_letters WHERE account=?').run(account.id); db.exec('COMMIT'); }
+        catch (error) { db.exec('ROLLBACK'); throw error; }
         return send(res, 200, { ok: true });
       }
-      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: savedEntries(account.id) });
+      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: savedEntries(account.id), letterStatus: letterInfo(account.id) });
       if (req.method !== 'GET') return send(res, 405, { error: '許可されていない操作です。' });
       if (pathname === '/') {
         const html = fs.readFileSync(path.join(appRoot, 'index.html'), 'utf8')
@@ -239,7 +247,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(html);
       }
       if (pathname === '/js/api.js') return serve(res, path.join(__dirname, 'api.js'), 'text/javascript; charset=utf-8');
-      const allowed = ['/css/app.css', '/js/app.js', '/js/life-meditation.js', '/js/store.js', '/js/timer.js', '/js/future-guidance.js', '/js/clock.js', '/js/flowers.js'];
+      const allowed = ['/css/app.css', '/js/app.js', '/js/life-meditation.js', '/js/store.js', '/js/timer.js', '/js/writing-timer.js', '/js/writing-panel.js', '/js/future-guidance.js', '/js/clock.js', '/js/flowers.js'];
       if (allowed.includes(pathname)) return serve(res, path.join(appRoot, pathname), pathname.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
       return send(res, 404, { error: '見つかりません。' });
     } catch (error) { if (!res.headersSent) send(res, error.status || 500, { error: '処理できませんでした。時間をおいて再度お試しください。' }); else res.end(); }
