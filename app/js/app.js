@@ -202,6 +202,7 @@
       '<p class="muted">どの日からでも開けます。とばした日にも、あとから戻れます。</p>' +
       '<ol class="day-list">' + cards + '</ol>' +
       '</section>';
+    window.scrollTo(0, 0);
     // style属性はセキュリティ設定（CSP）で使えないため、あとから幅を設定する
     document.getElementById('bar-fill').style.width = (done.length / 21 * 100) + '%';
     if (store.isSealed() && !store.isOpened()) {
@@ -282,6 +283,7 @@
     setTitle('Day ' + pad(n) + ' ' + d.title);
     var e = store.entry(n);
     var body = '';
+    var workPanel = step >= 3 ? window.MichiruWritingPanel.html('work-time', 60) : '';
 
     if (step === 1) {
       body = '<p>今日のはじまりの気分を、0〜10で眺めてみましょう。</p>' + moodHtml('mood-am', '朝の気分', e.mood_am);
@@ -302,6 +304,7 @@
         '</div></div>';
     } else if (step === 3) {
       body = miniGuideHtml(n) + '<div class="story"><p>' + esc(d.intro) + '</p></div>' +
+        workPanel +
         '<p class="muted">書ける分だけで大丈夫です。空欄のままでも先へ進めます。</p>' +
         d.prompts.map(function (p, i) {
           return '<div class="field"><label for="ans-' + i + '">' + esc(p) + '</label>' +
@@ -310,6 +313,7 @@
         (d.compare_with_day ? compareInline(d.compare_with_day) : '');
     } else if (step === 4) {
       body = '<div class="story"><p class="label">今日の小さな実践</p><p>' + esc(d.action) + '</p></div>' +
+        workPanel +
         '<div class="field"><label for="act">自分の行動のメモ（任意）</label><textarea id="act" rows="3" maxlength="2000">' + esc(e.action_text) + '</textarea></div>' +
         '<fieldset class="choice"><legend>今日の行動は</legend>' +
         radio('act-st', 'done', 'できた', e.action_status) + radio('act-st', 'skipped', '今日は見送り', e.action_status) + radio('act-st', '', 'まだ決めていない', e.action_status || '') +
@@ -317,6 +321,7 @@
     } else {
       var completed = !!e.completed_at;
       body = letterReadHtml(n) + moodHtml('mood-pm', '夜の気分', e.mood_pm) +
+        workPanel +
         '<div class="field"><label for="refl">' + esc(d.reflection) + '<span class="muted">（発見を一言でも）</span></label>' +
         '<textarea id="refl" rows="4" maxlength="4000">' + esc(e.reflection) + '</textarea></div>' +
         discoveryFormHtml(n, '今日の発見から、残しておきたい一言（任意）') +
@@ -330,7 +335,7 @@
         '</div>';
     }
 
-    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() + window.MichiruWritingPanel.html('work-time', 60) : '') + body + '</div>' + stepNav(n, step) + '</article>';
+    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() : '') + body + '</div>' + stepNav(n, step) + '</article>';
 
     if (step === 1) bindMood(n, 'mood-am', 'mood_am');
     if (step === 2) bindTimer(n);
