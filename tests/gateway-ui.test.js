@@ -45,6 +45,14 @@ test('招待ログイン後、Day1〜3の全ステップ・花・ミニ解説・
       await page.waitForSelector('.day-head');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `Day${day} step${step}`);
       assert.ok((await page.textContent('.head-flower .flower-name')).trim());
+      if (step === 2) {
+        const meditation = await page.textContent('.meditation');
+        assert.match(meditation, /命の瞑想/);
+        assert.match(meditation, /吸って、吐き/);
+        assert.match(meditation, /脈を感じ/);
+        assert.match(meditation, /あなたの中に、命が在る/);
+        assert.equal(await page.textContent('#t-sec'), '33');
+      }
       if (step === 3) {
         assert.ok((await page.textContent('.mini-guide')).length > 20);
         await page.fill('#ans-0', `Day${day}の記録 🌼`);
