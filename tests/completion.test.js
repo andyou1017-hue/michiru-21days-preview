@@ -93,6 +93,8 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     await page.reload(); await page.waitForSelector('.day-list');
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     await page.goto(base + '/#/day/2/3'); await page.fill('#ans-0', 'PWA再開用の記録');
+    // This test isolates offline navigation; interrupted writes have separate coverage.
+    await page.waitForSelector('#save-status[data-state="saved"]');
     const before = await page.evaluate(() => { const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.')); return { key, value: localStorage.getItem(key) }; });
     const cached = await page.evaluate(async () => { const all = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) all.push(new URL(request.url).pathname); return all; });
     assert.ok(cached.includes('/offline.html')); assert.ok(cached.every(p => p === '/offline.html' || p.startsWith('/icons/')));
