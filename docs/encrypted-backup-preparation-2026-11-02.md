@@ -1,0 +1,21 @@
+# 招待制アプリ：暗号化バックアップの準備（本番未適用）
+
+`runtime/encrypted-backup.js` は、稼働中SQLiteから整合性確認済みのスナップショットを作り、AES-256-GCMとscryptで暗号化したファイルを書き出す補助ツールです。復元時には認証タグとSQLite整合性を確認し、**既存ファイルを上書きしません**。暗号化されていない一時DBは権限制限した一時ディレクトリに作成し、成功・失敗にかかわらず削除します。パスフレーズはファイルやGitに保存しません。
+
+このツールの追加は外部ストレージへの転送、定期実行、バックアップ保管先の設定、本番復元演習を意味しません。実際の受講生データには使っていません。配布前には、外部保存先と鍵の安全な保管、世代管理、復元訓練、監視を別途整える必要があります。
+
+## テスト用操作例（非公開の絶対パスのみ）
+
+```sh
+# 対話的に秘密を入力。コマンド履歴に直接パスフレーズを残さない。
+read -r -s -p 'Backup passphrase: ' MICHIRU_BACKUP_PASSPHRASE; echo
+export MICHIRU_BACKUP_PASSPHRASE
+node runtime/encrypted-backup.js export /private/data/michiru.sqlite /external-private/2026-11-02.enc
+# 復元先は稼働中のDBではなく、まだ存在しない別の非公開パスにする。
+node runtime/encrypted-backup.js restore /external-private/2026-11-02.enc /private/recovery-test.sqlite
+unset MICHIRU_BACKUP_PASSPHRASE
+```
+
+上のパスは例です。パスフレーズは16文字以上の十分に長い秘密を別の安全な場所に保管し、紛失しないでください。**パスフレーズを失うと復元できません**。パスフレーズや暗号化ファイルを公開GitHub・PR・CIログに貼らないでください。暗号化済みでも受講生情報のバックアップとして取り扱います。
+
+本番Docker構成では外部保管先をまだマウントしていません。`compose.yaml`や`render.yaml`をこの変更で更新せず、課金・デプロイ・本番データ操作をしません。既存の平文バックアップ操作 `runtime/backup.js` はそのまま残しています。
