@@ -5,8 +5,9 @@ const assert = require('node:assert');
 const path = require('path');
 const { createStaticServer } = require('../tools/static-server');
 
+const BROWSER = process.env.PW_BROWSER || 'chromium';
 let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { chromium = null; }
+try { chromium = require('playwright')[BROWSER]; } catch (e) { chromium = null; }
 
 const EXEC = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const skip = chromium ? false : 'playwright が見つからないため省略';
@@ -21,7 +22,7 @@ test.before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port + '/';
   const fs = require('fs');
-  browser = await chromium.launch(fs.existsSync(EXEC) ? { executablePath: EXEC } : {});
+  browser = await chromium.launch(BROWSER === 'chromium' && fs.existsSync(EXEC) ? { executablePath: EXEC } : {});
 });
 test.after(async () => {
   if (browser) await browser.close();
@@ -51,6 +52,177 @@ async function waitSaved(page) {
 function stored(page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('michiru21.v1')));
 }
+
+test('本番設定で認証APIが欠けた場合、試作教材へフォールバックしない', { skip }, async () => {
+  const { context, page } = await newPage();
+  await page.addInitScript(() => { window.MICHIRU_CONFIG = { server: true }; });
+  await page.goto(base);
+  assert.match(await page.textContent('#view'), /認証を読み込めませんでした/);
+  assert.equal(await page.locator('#start, .day-list, textarea').count(), 0);
+  await context.close();
+});
+
+test('RECOVERY 読めない記録を上書きせず、元データを退避してバックアップから戻せる', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  const original = '{"entries":{"1":{"reflection":"大切な記録"';
+  await page.addInitScript(value => {
+    if (!sessionStorage.getItem('recovery-seeded')) {
+      localStorage.setItem('michiru21.v1', value); sessionStorage.setItem('recovery-seeded', '1');
+    }
+  }, original);
+  await page.goto(base);
+  await page.waitForSelector('#recovery-title');
+  assert.equal(await page.isDisabled('#export'), true);
+  assert.equal(await page.locator('textarea').count(), 0);
+  await page.goto(base + '#/day/1/3');
+  await page.waitForSelector('#recovery-title');
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#export-recovery')]);
+  assert.equal(require('fs').readFileSync(await download.path(), 'utf8'), original);
+  const backup = { app: 'michiru-21days', schema: 1, consentedAt: new Date().toISOString(), entries: { 1: { answers: ['復元する記録'] } }, discoveries: [{ id: 'd1', text: '発見', day: 1 }], futureReplies: { 7: { text: '返信' } } };
+  await page.setInputFiles('#import-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.click('#confirm-cancel');
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  await page.setInputFiles('#import-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.click('#confirm-ok');
+  await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  assert.equal(await page.locator('#recovery-title').count(), 0);
+  assert.equal(await page.isEnabled('#export'), true);
+  assert.equal((await stored(page)).futureReplies[7].text, '返信');
+  await page.goto(base + '#/day/1/3');
+  assert.equal(await page.inputValue('#ans-0'), '復元する記録');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('RECOVERY 未対応形式では案内し、明示的な全削除で新しく始められる', { skip }, async () => {
+  const { context, page } = await newPage();
+  const original = JSON.stringify({ app: 'michiru-21days', schema: 2, futureLetter: { text: '未来の記録' } });
+  await page.addInitScript(value => {
+    if (!sessionStorage.getItem('recovery-seeded')) {
+      localStorage.setItem('michiru21.v1', value); sessionStorage.setItem('recovery-seeded', '1');
+    }
+  }, original);
+  await page.goto(base);
+  await page.waitForSelector('#recovery-title');
+  await page.click('#delete-all'); await page.click('#confirm-cancel');
+  assert.equal(await page.evaluate(() => localStorage.getItem('michiru21.v1')), original);
+  await page.click('#delete-all'); await page.click('#confirm-ok');
+  await page.waitForSelector('#agree');
+  assert.deepEqual((await stored(page)).entries, {});
+  await context.close();
+});
+
+test('確認ダイアログのTab移動を内側に保ち、Escapeで元のボタンへ戻る', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page); await page.goto(base + '#/settings');
+  await page.click('#delete-all');
+  await page.waitForSelector('#confirm-cancel:focus');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.locator('#confirm-ok').evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#confirm-cancel').evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.confirm').count(), 0);
+  assert.equal(await page.locator('#delete-all').evaluate(el => el === document.activeElement), true);
+  await context.close();
+});
+
+test('ホームでも草案のミニ解説に確認中の注記を表示する', { skip }, async () => {
+  const { context, page } = await newPage();
+  await consent(page);
+  assert.match(await page.textContent('.door-guide .draft-mark'), /確認中/);
+  await context.close();
+});
+
+test('未来の手紙の音声：操作してから再生し、33秒無音を3回経て書き出しへ進む', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  await page.addInitScript(() => {
+    const synth = new EventTarget();
+    window.__guidanceSpoken = [];
+    synth.getVoices = () => [{ name: 'テスト日本語音声', lang: 'ja-JP' }];
+    synth.speak = u => { window.__guidanceSpoken.push(u.text); window.__guidanceLast = u; };
+    synth.cancel = () => { window.__guidanceCancelled = (window.__guidanceCancelled || 0) + 1; };
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
+    window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  });
+  await consent(page); await page.goto(base + '#/day/1/5');
+  await page.click('.letter-box > summary');
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), 0);
+  await page.clock.install();
+  await page.selectOption('#guidance-voice', 'テスト日本語音声');
+  await page.click('#guidance-start');
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), 1);
+  await page.click('#guidance-pause');
+  assert.match(await page.textContent('#guidance-status'), /一時停止/);
+  await page.click('#guidance-resume');
+  for (let i = 0; i < 7; i++) {
+    await page.evaluate(() => window.__guidanceLast.onend());
+    if ([2, 3, 4].includes(i)) {
+      assert.match(await page.textContent('#guidance-seconds'), /33秒/);
+      const count = await page.evaluate(() => window.__guidanceSpoken.length);
+      await page.clock.fastForward(32000);
+      assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), count);
+      await page.clock.fastForward(1000);
+    }
+  }
+  assert.match(await page.textContent('#guidance-status'), /終わりました/);
+  assert.equal(await page.isVisible('#letter-write'), true);
+  await page.fill('#letter-text', '未来の自分から届いた言葉');
+  await page.click('#guidance-start');
+  const count = await page.evaluate(() => window.__guidanceSpoken.length);
+  await page.goto(base + '#/settings');
+  await page.waitForSelector('#export');
+  await page.evaluate(() => window.__guidanceLast.onend());
+  assert.equal(await page.evaluate(() => window.__guidanceSpoken.length), count);
+  assert.ok(await page.evaluate(() => window.__guidanceCancelled > 0));
+  assert.equal((await stored(page)).futureLetter.text, '未来の自分から届いた言葉');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('全21日の教材読み上げ：ミニ解説・本文・問いを読み、入力した記録は含めない', { skip }, async () => {
+  const { context, page, errors } = await newPage({ width: 320 });
+  await page.addInitScript(() => {
+    const synth = new EventTarget();
+    synth.getVoices = () => [{ name: '日本語', lang: 'ja-JP' }];
+    synth.speak = utterance => { window.__readUtterance = utterance; window.__readTexts.push(utterance.text); };
+    synth.cancel = () => {};
+    window.__readTexts = [];
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
+    window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  });
+  await consent(page);
+  for (let day = 1; day <= 21; day++) {
+    await page.goto(base + '#/day/' + day + '/3');
+    await page.waitForFunction(day => document.querySelector('.day-head .eyebrow')?.textContent === 'Day ' + String(day).padStart(2, '0') + ' / 21', day);
+    await page.fill('#ans-0', '読み上げない個人の記録');
+    await page.evaluate(() => { window.__readTexts = []; });
+    await page.click('#lesson-read');
+    if (day === 1) {
+      await page.click('#lesson-read-pause');
+      assert.match(await page.textContent('#lesson-read-status'), /一時停止/);
+      await page.click('#lesson-read-resume');
+    }
+    await page.evaluate(() => {
+      for (let i = 0; i < 12 && !document.getElementById('lesson-read-pause').hidden; i++) window.__readUtterance.onend();
+    });
+    assert.match(await page.textContent('#lesson-read-status'), /終わりました/);
+    const spoken = await page.evaluate(() => window.__readTexts.join('\n'));
+    const title = await page.textContent('.day-head h1');
+    assert.ok(spoken.includes(title));
+    assert.ok(spoken.includes((await page.textContent('.story p')).trim()));
+    assert.ok(!spoken.includes('読み上げない個人の記録'));
+  }
+  await page.click('#lesson-read');
+  const count = await page.evaluate(() => window.__readTexts.length);
+  await page.goto(base + '#/settings'); await page.waitForSelector('#export');
+  await page.evaluate(() => window.__readUtterance.onend());
+  assert.equal(await page.evaluate(() => window.__readTexts.length), count);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
 
 test('S01 はじめに：読んだ確認をしないと始められない', { skip }, async () => {
   const { context, page, errors } = await newPage();
@@ -483,7 +655,10 @@ test('P1 今日の扉：開くと前回の日へ。完了した日のあとは�
   // 21日すべて完了すると、扉は「おわりに」へ
   for (let n = 1; n <= 21; n++) {
     await page.goto(base + '#/day/' + n + '/5');
-    if (await page.isVisible('#complete')) await page.click('#complete');
+    // WebKit の画面描画前に isVisible() が false になる競合を防ぐ。
+    // Day 03 はこのテストの前半で完了済みなので、完了画面も待機対象にする。
+    await page.waitForFunction(() => document.querySelector('#complete') || document.querySelector('.done-mark') || document.querySelector('.closing'));
+    if (await page.locator('#complete').isVisible()) await page.click('#complete');
     await page.waitForSelector(n === 21 ? '.closing' : '.done-mark'); // Day 21 は完了すると「おわりに」へ進む
   }
   await page.goto(base + '#/');
@@ -863,6 +1038,7 @@ test('P3 以前の試作で書いた「21日後の私へ」の手紙は、消さ
   assert.strictEqual(await page.locator('#letter-read').count(), 0);
   // 手紙の画面では、以前の形式として別枠（折りたたみ）で読める
   await page.goto(base + '#/letter');
+  await page.waitForSelector('.letter-box.legacy');
   assert.match(await page.textContent('main'), /手紙はまだありません/);
   assert.match(await page.textContent('.letter-box.legacy summary'), /以前の形式で書いた手紙/);
   await page.click('.letter-box.legacy summary');
@@ -1047,23 +1223,30 @@ test('P3 手紙：通信できないまま、端末の時計が進んだ状態�
   let s = await stored(page);
   assert.strictEqual(s.futureLetter.sealed_trusted_at, null);
   await page.unroute('**/*clock=*');
+  // WebKitで60日進めた仮想時計のまま連続ナビゲーションすると、
+  // 7日境界の画面遷移中にページがクラッシュすることがある。
+  // 封をした記録を保持したまま新しいブラウザ環境で再開し、
+  // 実際の機種変更・再ログインに近い復元経路も合わせて検証する。
+  const sealedStorage = await context.storageState();
+  await context.close();
+  const resumed = await newPage({ storageState: sealedStorage });
+  const resumedPage = resumed.page;
   const real = Date.now();
   serverNow = real;
-  await page.reload();
-  await page.goto(base + '#/day/7/5');
-  assert.match(await letterState(page), /封をしてから7日後/);
-  await waitSaved(page);
-  s = await stored(page);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.match(await letterState(resumedPage), /封をしてから7日後/);
+  await waitSaved(resumedPage);
+  s = await stored(resumedPage);
   const basis = Date.parse(s.futureLetter.sealed_trusted_at);
   assert.ok(Math.abs(basis - real) < 60 * 1000, '基準が今のサーバー時刻に寄った');
   // 7日後に届く（60日待たなくてよい）。7日より前は届かない
-  await setServerTime(page, basis + 7 * DAY - 1000);
-  await page.goto(base + '#/day/7/5');
-  assert.match(await letterState(page), /封をしてから7日後/);
-  await setServerTime(page, basis + 7 * DAY + 1000);
-  await page.goto(base + '#/day/7/5');
-  assert.ok((await letterState(page)).includes(T3));
-  await context.close();
+  await setServerTime(resumedPage, basis + 7 * DAY - 1000);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.match(await letterState(resumedPage), /封をしてから7日後/);
+  await setServerTime(resumedPage, basis + 7 * DAY + 1000);
+  await resumedPage.goto(base + '#/day/7/5');
+  assert.ok((await letterState(resumedPage)).includes(T3));
+  await resumed.context.close();
   serverNow = null;
 });
 

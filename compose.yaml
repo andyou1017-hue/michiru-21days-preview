@@ -1,0 +1,40 @@
+name: michiru-21days
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      MICHIRU_ORIGIN: https://${MICHIRU_DOMAIN:?Set the approved HTTPS domain}
+      MICHIRU_DB: /data/private/michiru.sqlite
+      MICHIRU_RELEASE_APPROVED: ${MICHIRU_RELEASE_APPROVED:-no}
+    volumes:
+      - private-data:/data
+    tmpfs: [/tmp]
+    ports:
+      - "80:80"
+      - "443:443"
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: service:app
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    environment:
+      MICHIRU_DOMAIN: ${MICHIRU_DOMAIN:?Set the approved HTTPS domain}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - tls-data:/data
+      - tls-config:/config
+    tmpfs: [/tmp]
+volumes:
+  private-data:
+  tls-data:
+  tls-config:

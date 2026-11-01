@@ -6,7 +6,9 @@
   "scripts": {
     "build:content": "node tools/build-content.js",
     "start": "node tools/static-server.js",
+    "start:production": "node runtime/production.js",
+    "backup:server": "node runtime/backup.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=22.16" }
 }

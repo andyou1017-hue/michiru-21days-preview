@@ -150,8 +150,10 @@
     if (!this.available || this.failed) return this.memory;
     try {
       var txt = window.localStorage.getItem(this.key);
-      return txt ? JSON.parse(txt) : null;
+      this.originalText = txt;
+      return txt === null ? null : JSON.parse(txt);
     } catch (e) {
+      this.readError = true;
       return null;
     }
   };
@@ -183,13 +185,17 @@
     this.timer = null;
     this.dirtyDays = {};
     this.pendingRemote = {};
+    this.remoteRevision = 0;
     this.status = 'saved';
     var raw = this.backend.read();
     try {
-      this.state = raw ? normalizeState(raw) : emptyState();
+      this.state = this.backend.originalText != null ? normalizeState(raw) : emptyState();
     } catch (e) {
       this.state = emptyState();
+      this.recoveryRequired = true;
     }
+    if (this.backend.readError) this.recoveryRequired = true;
+    if (this.recoveryRequired) this.status = 'recovery';
   }
 
   Store.prototype.onStatus = function (fn) { this.listeners.push(fn); };
@@ -208,7 +214,7 @@
       e.answers.some(function (a) { return a && a.length; }));
   };
 
-  // 入力のたびに呼ぶ。少し待ってからまとめて保存する（打鍵ごとの書き込みを避ける）。
+  // 入力のたびに呼ぶ。端末内は直ちに保存し、送信だけをまとめる。
   Store.prototype.updateEntry = function (day, patch) {
     var e = this.state.entries[day] || emptyEntry(day);
     for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) e[k] = patch[k];
@@ -228,16 +234,19 @@
     var self = this;
     if (this.detached) return;
     this.setStatus('saving');
+    // Safariでは画面を閉じるときの通知が届かない場合があるため、最後の入力をタイマーに委ねない。
+    if (this.recoveryRequired) this.setStatus('recovery');
+    else if (!this.backend.write(this.state)) this.setStatus(this.localStatus(false));
     clearTimeout(this.timer);
     this.timer = setTimeout(function () { self.flush(); }, 400);
   };
 
   // ログアウト・アカウント削除のあと：端末の記録を消し、以後は保存しない（共用の端末に残さない）
-  Store.prototype.detach = function () {
+  Store.prototype.detach = function (keepLocal) {
     this.detached = true;
     clearTimeout(this.timer);
     clearTimeout(this.retryTimer);
-    this.backend.clear();
+    if (!keepLocal) this.backend.clear();
   };
 
   Store.prototype.localStatus = function (ok) {
@@ -250,11 +259,12 @@
     clearTimeout(this.timer);
     this.timer = null;
     if (this.detached) return false;
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     var ok = this.backend.write(this.state);
     var days = Object.keys(this.dirtyDays);
-    this.dirtyDays = {};
+    if (ok) this.dirtyDays = {};
     if (this.remote && ok) {
-      for (var i = 0; i < days.length; i++) this.pendingRemote[days[i]] = true;
+      for (var i = 0; i < days.length; i++) this.pendingRemote[days[i]] = ++this.remoteRevision;
       this.pushRemote();
     } else {
       this.setStatus(this.localStatus(ok));
@@ -269,13 +279,20 @@
     if (!days.length) { this.setStatus(this.localStatus(!this.backend.failed && this.backend.available)); return; }
     this.pushing = true;
     var day = Number(days[0]);
+    var revision = this.pendingRemote[day];
     var e = this.state.entries[day];
-    var p = e ? this.remote.pushEntry(day, e) : this.remote.deleteEntry(day);
-    p.then(function () {
-      delete self.pendingRemote[day];
+    // 送信中に入力されても、送信した内容と次に送る内容を混同しない。
+    var snapshot = e ? JSON.parse(JSON.stringify(e)) : null;
+    var p = Promise.resolve().then(function () {
+      return snapshot ? self.remote.pushEntry(day, snapshot) : self.remote.deleteEntry(day);
+    });
+    this.inFlight = p.then(function () {
+      if (self.detached) return;
+      if (self.pendingRemote[day] === revision) delete self.pendingRemote[day];
       self.pushing = false;
       self.pushRemote();
     }, function () {
+      if (self.detached) return;
       self.pushing = false;
       self.setStatus('offline');
       clearTimeout(self.retryTimer);
@@ -289,17 +306,24 @@
   };
 
   Store.prototype.deleteDay = function (day) {
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     var prev = this.state.entries[day];
     delete this.state.entries[day];
     var ok = this.backend.write(this.state);
     if (!ok && prev) this.state.entries[day] = prev; // 消せなかったら、画面の記録も元のまま
-    if (this.remote && ok) { this.pendingRemote[day] = true; this.pushRemote(); } else this.setStatus(this.localStatus(ok));
+    if (!ok) this.backend.memory = JSON.parse(JSON.stringify(this.state));
+    if (this.remote && ok) { this.pendingRemote[day] = ++this.remoteRevision; this.pushRemote(); } else this.setStatus(this.localStatus(ok));
     return ok;
   };
 
   Store.prototype.deleteAll = function () {
     var self = this;
     var prev = this.state;
+    var recovery = this.recoveryRequired;
+    var prevDirty = this.dirtyDays;
+    var prevPending = this.pendingRemote;
+    clearTimeout(this.timer);
+    clearTimeout(this.retryTimer);
     var settings = this.state.settings;
     this.state = emptyState();
     this.state.settings = settings;
@@ -309,8 +333,28 @@
     var cleared = this.backend.clear();
     var written = this.backend.write(this.state);
     var ok = cleared || written;
-    if (!ok) { this.state = prev; this.backend.write(prev); } // 消せなかったら、画面の記録も元のまま
-    if (this.remote && ok) return this.remote.deleteAll().then(function () { self.setStatus('saved'); return true; });
+    if (ok) this.recoveryRequired = false;
+    if (!ok) {
+      this.state = prev; this.backend.write(prev);
+      this.dirtyDays = prevDirty; this.pendingRemote = prevPending;
+    } // 消せなかったら、画面の記録も元のまま
+    // 進行中の送信が削除後に到着して記録を復活させないよう、完了を待ってから削除する。
+    if (this.remote && ok) return Promise.resolve(this.inFlight).then(function () {
+      clearTimeout(self.retryTimer);
+      return self.remote.deleteAll();
+    }).then(function () {
+      if (!self.detached) self.setStatus(self.localStatus(written));
+      return true;
+    }, function () {
+      // サーバーに残ったまま削除完了画面へ進めない。記録を戻して再試行できるようにする。
+      if (!self.detached) {
+        self.state = prev; self.backend.write(prev);
+        self.recoveryRequired = recovery;
+        self.dirtyDays = prevDirty; self.pendingRemote = prevPending;
+        self.setStatus('error');
+      }
+      return false;
+    });
     this.setStatus(this.localStatus(ok));
     return Promise.resolve(ok);
   };
@@ -409,6 +453,7 @@
   };
 
   Store.prototype.exportBackup = function () {
+    if (this.recoveryRequired) throw new Error('元のデータを退避するか、バックアップから記録を戻してください。');
     this.flush();
     var copy = JSON.parse(JSON.stringify(this.state));
     copy.exportedAt = now();
@@ -430,11 +475,15 @@
   Store.prototype.importBackup = function (raw) {
     var s = normalizeState(raw);
     var prev = this.state;
+    var recovery = this.recoveryRequired;
+    this.recoveryRequired = false;
     this.state = s;
     for (var d = 1; d <= 21; d++) this.dirtyDays[d] = true;
     if (!this.flush()) { // 保存できなかったら、元の記録のままにする（画面と端末の中身を食い違わせない）
       this.state = prev;
+      this.recoveryRequired = recovery;
       this.dirtyDays = {};
+      this.backend.memory = JSON.parse(JSON.stringify(prev));
       return false;
     }
     return true;
@@ -442,15 +491,17 @@
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
   Store.prototype.mergeRemote = function (remoteEntries) {
+    if (this.recoveryRequired) { this.setStatus('recovery'); return; }
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];
       if (r && (!l || (r.updated_at || '') > (l.updated_at || ''))) this.state.entries[d] = r;
-      else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = true;
+      else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = ++this.remoteRevision;
     }
-    this.backend.write(this.state);
-    this.pushRemote();
+    if (this.backend.write(this.state)) this.pushRemote();
+    else this.setStatus(this.localStatus(false));
   };
 
   window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };
 })();
+

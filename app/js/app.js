@@ -8,14 +8,19 @@
   var api = null;        // 本番のみ（js/api.js）
   var account = null;    // 本番のみ：{ email, access }
   var timer = null;
+  var guidancePlayer = null;
+  var guidanceCleanup = null;
+  var lessonReader = null;
+  var readerCleanup = null;
   var view = document.getElementById('view');
   var statusEl = document.getElementById('save-status');
 
-  var STEPS = ['朝の気分', '33秒の静かな時間', '今日のお話と問い', '今日の行動', '夜のふりかえり'];
+  var STEPS = ['朝の気分', '命の瞑想（33秒）', '今日のお話と問い', '今日の行動', '夜のふりかえり'];
   var STATUS_TEXT = {
     saved: '保存しました',
     saving: '保存中…',
     memory: 'この端末に保存できません（画面を閉じると消えます）',
+    recovery: '記録を読み取れません。元データを保護しています',
     error: '保存できませんでした。画面を閉じる前に「設定」からファイルに保存してください',
     offline: '端末には保存済み。通信が戻ったら送信します'
   };
@@ -53,7 +58,17 @@
         if (back && back.focus) back.focus();
         resolve(v);
       }
-      function onKey(ev) { if (ev.key === 'Escape') done(false); }
+      function onKey(ev) {
+        if (ev.key === 'Escape') { ev.preventDefault(); done(false); return; }
+        if (ev.key !== 'Tab') return;
+        var first = wrap.querySelector('#confirm-cancel');
+        var last = wrap.querySelector('#confirm-ok');
+        if (ev.shiftKey && (document.activeElement === first || !wrap.contains(document.activeElement))) {
+          ev.preventDefault(); last.focus();
+        } else if (!ev.shiftKey && (document.activeElement === last || !wrap.contains(document.activeElement))) {
+          ev.preventDefault(); first.focus();
+        }
+      }
       document.addEventListener('keydown', onKey);
       wrap.querySelector('#confirm-cancel').addEventListener('click', function () { done(false); });
       wrap.querySelector('#confirm-ok').addEventListener('click', function () { done(true); });
@@ -63,7 +78,7 @@
   function moodText(v) { return v === null || v === undefined ? '未記録' : String(v); }
 
   function pauseNote(st) {
-    return st === 'error' || st === 'memory' ? '（いまは端末に保存できていません。右上の表示をご確認ください）'
+    return st === 'error' || st === 'memory' || st === 'recovery' ? '（いまは端末に保存できていません。右上の表示をご確認ください）'
       : '（ここまでの記録は、この端末に保存されます。いつでも続きから再開できます）';
   }
   function showStatus(s) {
@@ -81,6 +96,7 @@
     view.innerHTML =
       '<section class="card intro">' +
       '<p class="eyebrow">満ちる眼</p>' +
+      '<div class="intro-flower">' + flower(1, 132) + '</div>' +
       '<h1>' + esc(i.title) + '</h1>' +
       '<p class="lead">' + esc(i.lead) + '</p>' +
       '<p>' + esc(i.heart) + '</p>' +
@@ -108,11 +124,12 @@
 
   function privacyHtml() {
     if (api) {
-      return '<ul class="notice"><li>記録は、あなたのアカウントにだけ保存されます。運営者があなたの書いた文章を、同意なく読んだり公開したりすることはありません。</li>' +
-        '<li>記録は「設定」からファイルに保存したり、すべて削除したりできます。</li>' +
-        '<li>病名や治療の内容、他の人が特定できる情報は書かないでください。</li></ul>';
+      return '<ul class="notice"><li>毎日の気分・問いの回答・行動・ふりかえりは、ログインしたアカウントごとにサーバーにも保存されます。別の受講生には表示されません。</li>' +
+        '<li>「私の発見」や未来からの手紙、個人設定は現時点ではこの端末に保存されます。端末のデータを消すと失われるため、「設定」からバックアップを保存してください。</li>' +
+        '<li>サーバー運営者は保守・障害対応などのため保存データにアクセスできる場合があります。機微な個人情報や他人を特定できる情報は書かないでください。</li>' +
+        '<li>通信が切れた場合は端末内に一時保存し、通信復旧後に再送します。送信できない間は画面に表示します。</li></ul>';
     }
-    return '<ul class="notice"><li>これは試作版です。記録はこの端末のブラウザの中にだけ保存され、外部には送信されません。</li>' +
+    return '<ul class="notice"><li>これは試作版です。記録はこの端末のブラウザの中だけに保存され、外部には送信されません。</li>' +
       '<li>ブラウザの履歴やデータを消すと、記録も消えます。「設定」からファイルに保存（バックアップ）できます。</li>' +
       '<li>病名や治療の内容、他の人が特定できる情報など、機微な情報は入力しないでください。</li></ul>';
   }
@@ -147,7 +164,9 @@
         '<p class="eyebrow">DAY ' + pad(door) + ' / 21</p>' +
         '<div class="door-flower">' + flower(door, 132) + '<p class="flower-name">今日の花：' + esc(flowerName(door)) + '</p></div>' +
         '<h2 id="daily-door-title">今日も、あなたの中に。</h2>' +
-        '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>' +
+        (door === 1 && done.length === 0
+          ? '<p>ここから、あなたの21日間が始まります。</p>'
+          : '<p>昨日は見えなかったものが、今日は見えるかもしれません。</p>') +
         '<p class="daily-door-label">今日のテーマ：' + esc(dayOf(door).title) + '</p>' +
         '<a class="btn primary" id="door-open" href="#/day/' + door + '/1" aria-label="今日の扉をひらく（Day ' + pad(door) + '「' + esc(dayOf(door).title) + '」）">今日の扉をひらく</a>' +
         '<p class="door-time">目安 10〜15分。できるところまでで大丈夫です。</p>' +
@@ -298,7 +317,7 @@
         '</div>';
     }
 
-    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + body + '</div>' + stepNav(n, step) + '</article>';
+    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() : '') + body + '</div>' + stepNav(n, step) + '</article>';
 
     if (step === 1) bindMood(n, 'mood-am', 'mood_am');
     if (step === 2) bindTimer(n);
@@ -331,7 +350,49 @@
       var u = document.getElementById('undo');
       if (u) u.addEventListener('click', function () { u.disabled = true; store.toggleComplete(n, false); render(); });
     }
+    if (step >= 3) bindLessonRead(d, step);
     focusHeading();
+  }
+
+  function lessonReadHtml() {
+    return '<section class="lesson-reader" aria-label="教材の読み上げ"><p class="row">' +
+      '<button type="button" class="btn small" id="lesson-read">教材を読み上げる</button>' +
+      '<button type="button" class="btn small" id="lesson-read-pause" hidden>一時停止</button>' +
+      '<button type="button" class="btn small" id="lesson-read-resume" hidden>再開する</button>' +
+      '<button type="button" class="btn small" id="lesson-read-stop" hidden>停止する</button></p>' +
+      '<p class="muted">端末の日本語音声を使います。書き込んだ記録は読み上げません。</p><p id="lesson-read-status" role="status"></p></section>';
+  }
+  function disposeReader() {
+    if (lessonReader) lessonReader.stop(); lessonReader = null;
+    if (readerCleanup) readerCleanup(); readerCleanup = null;
+  }
+  function bindLessonRead(day, step) {
+    if (!window.MichiruFutureGuidance) return;
+    var start = document.getElementById('lesson-read'), pause = document.getElementById('lesson-read-pause');
+    var resume = document.getElementById('lesson-read-resume'), stop = document.getElementById('lesson-read-stop');
+    var status = document.getElementById('lesson-read-status');
+    var paragraphs = [day.title];
+    if (step === 3) {
+      var guide = C.mini_guides && C.mini_guides.days && C.mini_guides.days[day.day];
+      if (guide) paragraphs.push(guide);
+      paragraphs.push(day.intro); paragraphs = paragraphs.concat(day.prompts);
+    } else paragraphs.push(step === 4 ? day.action : day.reflection);
+    lessonReader = new window.MichiruFutureGuidance.Reader(paragraphs, function (state) {
+      pause.hidden = state !== 'playing'; resume.hidden = state !== 'paused' && state !== 'error';
+      stop.hidden = ['playing', 'paused', 'error'].indexOf(state) < 0;
+      status.textContent = state === 'playing' ? '読み上げています。' : state === 'paused' ? '一時停止中です。再開すると、その段落の最初から読み上げます。' :
+        state === 'done' ? '読み上げが終わりました。' : state === 'error' ? '読み上げを続けられませんでした。再開するか、文章を読んで進められます。' :
+        state === 'unsupported' ? 'このブラウザでは読み上げを使えません。文章を読んで進められます。' : '';
+    });
+    start.disabled = !lessonReader.supported();
+    if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。';
+    start.addEventListener('click', function () { if (guidancePlayer) guidancePlayer.stop(); lessonReader.start(); });
+    pause.addEventListener('click', function () { lessonReader.pause(); });
+    resume.addEventListener('click', function () { if (guidancePlayer) guidancePlayer.stop(); lessonReader.resume(); });
+    stop.addEventListener('click', function () { lessonReader.stop(); });
+    function hidden() { if (document.visibilityState === 'hidden' && lessonReader) lessonReader.pause(); }
+    document.addEventListener('visibilitychange', hidden);
+    readerCleanup = function () { document.removeEventListener('visibilitychange', hidden); };
   }
 
   // ---------- 私の発見（P2） ----------
@@ -432,6 +493,81 @@
   var prepTimer = null;
   function lines(arr) { return arr.map(function (t) { return '<p>' + esc(t) + '</p>'; }).join(''); }
 
+  function futureGuidanceHtml() {
+    var g = window.MichiruFutureGuidance;
+    if (!g) return '';
+    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">33秒瞑想（33秒×3回）</h4>' +
+      '<p class="muted">端末の日本語読み上げを使います。声は端末によって異なります。途中に33秒の無音が3回あります。</p>' +
+      '<p class="muted">座って安全に過ごせる場所で使ってください。目を開けたままでも、途中でやめてもかまいません。</p>' +
+      '<label for="guidance-voice">読み上げの声</label><select id="guidance-voice"><option value="">端末の日本語音声</option></select>' +
+      '<p class="row"><button class="btn" type="button" id="guidance-start">音声をはじめる・最初から</button>' +
+      '<button class="btn" type="button" id="guidance-pause" hidden>一時停止</button>' +
+      '<button class="btn" type="button" id="guidance-resume" hidden>再開する</button>' +
+      '<button class="btn" type="button" id="guidance-stop" hidden>停止する</button></p>' +
+      '<p id="guidance-status" role="status">音声は自動では流れません。</p><p id="guidance-seconds" aria-live="off"></p>' +
+      '<details class="guidance-transcript"><summary>音声の原稿を読む</summary>' + g.sections.map(function (s) {
+        return '<h4>' + esc(s.title) + '</h4>' + lines(s.text) + (s.silence ? '<p>【ここで33秒間、無言】</p>' : '');
+      }).join('') + '</details></section>';
+  }
+
+  function disposeGuidance() {
+    if (guidancePlayer) guidancePlayer.stop();
+    guidancePlayer = null;
+    if (guidanceCleanup) guidanceCleanup();
+    guidanceCleanup = null;
+  }
+
+  function bindFutureGuidance(reveal) {
+    var start = document.getElementById('guidance-start');
+    if (!start) return;
+    disposeGuidance();
+    var g = window.MichiruFutureGuidance, synth = window.speechSynthesis;
+    var status = document.getElementById('guidance-status'), seconds = document.getElementById('guidance-seconds');
+    var pause = document.getElementById('guidance-pause'), resume = document.getElementById('guidance-resume');
+    var stop = document.getElementById('guidance-stop'), select = document.getElementById('guidance-voice');
+    var voices = [];
+    function updateVoices() {
+      var previous = select.value;
+      voices = synth ? synth.getVoices().filter(function (v) { return /^ja(?:-|$)/i.test(v.lang); }) : [];
+      select.innerHTML = '<option value="">端末の日本語音声</option>' + voices.map(function (v) {
+        return '<option value="' + esc(v.name) + '">' + esc(v.name) + '</option>';
+      }).join('');
+      if (voices.some(function (v) { return v.name === previous; })) select.value = previous;
+    }
+    guidancePlayer = new g.Player(function (s) {
+      pause.hidden = s.state !== 'playing';
+      resume.hidden = s.state !== 'paused' && s.state !== 'error';
+      stop.hidden = ['playing', 'paused', 'error'].indexOf(s.state) < 0;
+      var section = g.sections[s.index];
+      var text = s.state === 'playing' ? (section ? section.title : '') + (s.phase === 'silence' ? '：静かに感じる時間です。' : '：読み上げています。') :
+        s.state === 'paused' ? '一時停止中です。読み上げ中の再開は、その段階の最初からになります。' :
+        s.state === 'error' ? '読み上げを続けられませんでした。再開するか、原稿を読みながら進められます。' :
+        s.state === 'done' ? '33秒瞑想が終わりました。感じたことを、書き残してみましょう。' :
+        s.state === 'unsupported' ? 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。' : '音声は停止しています。';
+      if (status.textContent !== text) status.textContent = text;
+      seconds.textContent = s.phase === 'silence' && s.remaining !== undefined ? '無音の時間：あと' + s.remaining + '秒' : '';
+    }, function () { reveal(); document.getElementById('letter-text').focus(); });
+    start.disabled = !guidancePlayer.supported();
+    if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。';
+    updateVoices();
+    start.addEventListener('click', function () {
+      if (lessonReader) lessonReader.stop();
+      if (prepTimer) prepTimer.dispose();
+      document.getElementById('prep-player').hidden = true;
+      guidancePlayer.start(voices.filter(function (v) { return v.name === select.value; })[0]);
+    });
+    pause.addEventListener('click', function () { guidancePlayer.pause(); });
+    resume.addEventListener('click', function () { if (lessonReader) lessonReader.stop(); guidancePlayer.resume(); });
+    stop.addEventListener('click', function () { guidancePlayer.stop(); });
+    function onHidden() { if (document.visibilityState === 'hidden' && guidancePlayer) guidancePlayer.pause(); }
+    document.addEventListener('visibilitychange', onHidden);
+    if (synth) synth.addEventListener('voiceschanged', updateVoices);
+    guidanceCleanup = function () {
+      document.removeEventListener('visibilitychange', onHidden);
+      if (synth) synth.removeEventListener('voiceschanged', updateVoices);
+    };
+  }
+
   function letterWriteHtml() {
     var l = store.state.futureLetter;
     var head = '<summary>未来からの手紙（任意）</summary>';
@@ -448,8 +584,9 @@
       '<div class="letter-intro"><h3>答えから、今を見てみましょう</h3>' + lines(LETTER_INTRO) + '</div>' +
       '<details class="answer-view"><summary>「答えから見る」という考え方</summary>' + lines(ANSWER_VIEW) + '</details>' +
       '<section class="letter-prep" aria-labelledby="prep-title"><h3 id="prep-title">書く前に、心を整えましょう</h3>' +
-      '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。どちらかを選んでください。</p>' +
-      '<p class="row"><button type="button" class="btn" id="prep-33">33秒の静かな時間</button>' +
+      '<p class="muted">満たされた未来の自分を感じてから書くと、言葉が自然に出てきやすくなります。音声や静かな時間を選べます。</p>' +
+      futureGuidanceHtml() +
+      '<p class="row"><button type="button" class="btn" id="prep-33">命の瞑想（33秒）</button>' +
       '<button type="button" class="btn" id="prep-thanks">感謝の瞑想（約1分）</button></p>' +
       '<div id="prep-player" hidden><div class="timer" aria-live="polite"><span id="prep-sec" class="t-sec"></span><span class="t-unit">秒</span></div>' +
       '<p id="prep-guide" class="t-guide"></p>' +
@@ -483,6 +620,8 @@
       document.getElementById('letter-write').hidden = false;
     }
     function play(m) {
+      if (lessonReader) lessonReader.stop();
+      if (guidancePlayer) guidancePlayer.stop();
       if (prepTimer) prepTimer.dispose();
       player.hidden = false; pause.hidden = false; resume.hidden = true;
       prepTimer = new window.MichiruTimer(m.seconds, function (remain, ms) {
@@ -501,6 +640,7 @@
       prepTimer.start();
     }
     b33.addEventListener('click', function () { play(C.meditation); });
+    bindFutureGuidance(reveal);
     document.getElementById('prep-thanks').addEventListener('click', function () { play(GRATITUDE_MEDITATION); });
     pause.addEventListener('click', function () { prepTimer.pause(); pause.hidden = true; resume.hidden = false; });
     resume.addEventListener('click', function () { prepTimer.start(); pause.hidden = false; resume.hidden = true; });
@@ -510,6 +650,7 @@
       reveal();
     });
     document.getElementById('prep-skip').addEventListener('click', function () {
+      if (guidancePlayer) guidancePlayer.stop();
       document.getElementById('letter-write').hidden = false;
       document.getElementById('prep-skip').hidden = true;
       document.getElementById('letter-text').focus();
@@ -536,6 +677,7 @@
           return;
         }
         var box = document.querySelector('.letter-box');
+        disposeGuidance();
         box.outerHTML = letterWriteHtml();
         var st = document.querySelector('.seal-state');
         st.setAttribute('tabindex', '-1'); st.focus();
@@ -685,7 +827,8 @@
   // 今日の扉に出す「今日の小さな理由」（ワークの画面と同じ文）
   function doorGuideHtml(n) {
     var g = C.mini_guides, t = g && g.days && g.days[n];
-    return t ? '<p class="door-guide">' + esc(t) + '</p>' : '';
+    return t ? '<p class="door-guide">' + esc(t) +
+      (g.status === 'draft' ? '<br><span class="draft-mark">（確認中の文章です）</span>' : '') + '</p>' : '';
   }
 
   // ワークの前の「今日の小さな理由」（2〜3文）。読まずにすぐワークに進めるよう、折りたためる
@@ -848,13 +991,20 @@
 
   // ---------- 画面：設定（S10） ----------
   function renderSettings() {
+    if (store.recoveryRequired && location.hash !== '#/settings') history.replaceState(null, '', '#/settings');
     setTitle('設定');
     var fs = store.state.settings.fontSize;
     function fsBtn(v, label) { return '<button type="button" class="btn small" data-fs="' + v + '" aria-pressed="' + (fs === v) + '">' + label + '</button>'; }
     view.innerHTML = '<section class="settings"><h1>設定</h1>' +
+      (store.recoveryRequired ? '<section class="card" aria-labelledby="recovery-title"><h2 id="recovery-title">記録を読み取れませんでした</h2>' +
+        '<p>元のデータを上書きせずに保護しています。まず退避用ファイルを保存し、お持ちのバックアップから記録を戻してください。</p>' +
+        '<p>退避用ファイルは、そのまま復元できるとは限りません。書いた文章が含まれるため、大切に保管してください。</p>' +
+        (typeof store.backend.originalText === 'string' ? '<p><button type="button" class="btn" id="export-recovery">元のデータを退避する</button></p>' :
+          '<p>ブラウザの保存領域を読み取れません。ブラウザのデータを消さずに、端末の設定を確認してから開き直してください。</p>') +
+        '<p>バックアップがなく、最初から始める場合だけ、下の「すべての記録を削除」を選んでください。</p></section>' : '') +
       '<h2>文字の大きさ</h2><p class="row">' + fsBtn('s', '小') + fsBtn('m', '標準') + fsBtn('l', '大') + fsBtn('xl', '特大') + '</p>' +
       '<h2>バックアップ</h2><p class="muted">記録をファイルにして保存できます。機種変更のときや、念のための保管に使ってください。ファイルには書いた文章が入っています。取り扱いに気をつけてください。</p>' +
-      '<p class="row"><button type="button" class="btn" id="export">記録をファイルに保存</button>' +
+      '<p class="row"><button type="button" class="btn" id="export"' + (store.recoveryRequired ? ' disabled' : '') + '>記録をファイルに保存</button>' +
       '<label class="btn" for="import-file">ファイルから記録を戻す</label><input type="file" id="import-file" accept="application/json,.json" class="sr-only"></p>' +
       '<p id="import-msg" role="status"></p>' +
       '<h2>記録の削除</h2><p><button type="button" class="btn danger" id="delete-all">すべての記録を削除</button></p>' +
@@ -866,20 +1016,28 @@
       '<p><a href="#/intro">はじめにの説明をもう一度読む</a></p></section>';
 
     Array.prototype.forEach.call(view.querySelectorAll('[data-fs]'), function (b) {
+      b.disabled = !!store.recoveryRequired;
       b.addEventListener('click', function () {
         store.setMeta(function (s) { s.settings.fontSize = b.getAttribute('data-fs'); });
         applyFont(); renderSettings();
       });
     });
-    document.getElementById('export').addEventListener('click', function () {
-      var data = JSON.stringify(store.exportBackup(), null, 2);
-      var blob = new Blob([data], { type: 'application/json' });
+    function download(text, filename) {
+      var blob = new Blob([text], { type: 'application/json' });
       var a = document.createElement('a');
-      var d = new Date();
       a.href = URL.createObjectURL(blob);
-      a.download = 'michiru-21days-backup-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json';
+      a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }
+    var recoveryButton = document.getElementById('export-recovery');
+    if (recoveryButton) recoveryButton.addEventListener('click', function () {
+      download(store.backend.originalText, 'michiru-21days-recovery-' + Date.now() + '.json');
+    });
+    document.getElementById('export').addEventListener('click', function () {
+      var data = JSON.stringify(store.exportBackup(), null, 2);
+      var d = new Date();
+      download(data, 'michiru-21days-backup-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json');
     });
     document.getElementById('import-file').addEventListener('change', function (ev) {
       var f = ev.target.files[0];
@@ -903,8 +1061,10 @@
             'ファイル' + (at ? '（' + at.getFullYear() + '/' + (at.getMonth() + 1) + '/' + at.getDate() + ' に保存）' : '') + '：' + line(incoming) + '\n' +
             'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
+            var recovering = store.recoveryRequired;
             if (!store.importBackup(raw)) { msg.textContent = '端末に保存できなかったため、記録を戻せませんでした（いまの記録はそのままです）。'; return; }
             applyFont();
+            if (recovering) { renderSettings(); msg = document.getElementById('import-msg'); }
             msg.textContent = '記録を戻しました。';
           });
         } catch (e) {
@@ -913,6 +1073,10 @@
         ev.target.value = '';
       };
       r.readAsText(f);
+      r.onerror = function () {
+        msg.textContent = 'ファイルを読み取れませんでした。端末にダウンロードされているか確認して、もう一度選んでください。';
+        ev.target.value = '';
+      };
     });
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
@@ -933,7 +1097,7 @@
     if (!api || !account) return;
     document.getElementById('logout').addEventListener('click', function () {
       store.flush();
-      api.logout().then(function () { store.detach(); location.reload(); });
+      api.logout().then(function () { store.detach(!!(window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.localOnly)); location.reload(); });
     });
     document.getElementById('delete-account').addEventListener('click', function () {
       askConfirm('アカウントと、サーバーに保存したすべての記録を削除します。元に戻せません。', 'アカウントを削除する').then(function (ok) {
@@ -948,11 +1112,14 @@
 
   // ---------- 振り分け ----------
   function render() {
+    disposeReader();
+    disposeGuidance();
     if (timer) { timer.dispose(); timer = null; }
     if (prepTimer) { prepTimer.dispose(); prepTimer = null; }
     letterPrepDone = false;
     store.noteDeviceTime();
     store.flush();
+    if (store.recoveryRequired) return renderSettings();
     var h = location.hash.replace(/^#/, '') || '/';
     var parts = h.split('/').filter(Boolean);
     updateNav(parts[0] || '');
@@ -980,7 +1147,8 @@
   }
 
   function start(content, opts) {
-    C = content;
+    // 招待制では教材をAPIから受け取るため、起動後に「命の瞑想」を適用する。
+    C = window.MichiruLifeMeditation ? window.MichiruLifeMeditation.apply(content) : content;
     store = new window.MichiruStore.Store(opts);
     store.onStatus(showStatus);
     applyFont();
@@ -995,13 +1163,19 @@
   // ---------- 起動 ----------
   function boot() {
     // 本番：server/ が window.MICHIRU_CONFIG.server = true を渡す
-    if (window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.server && window.MichiruApi) {
+    if (window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.server) {
+      if (!window.MichiruApi) {
+        view.textContent = '認証を読み込めませんでした。通信を確認して、もう一度開いてください。';
+        return;
+      }
       api = window.MichiruApi;
-      api.boot(view).then(function (res) {
+      Promise.resolve().then(function () { return api.boot(view); }).then(function (res) {
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
         var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: api.remote() });
-        s.mergeRemote(res.entries);
+        if (s.remote) s.mergeRemote(res.entries);
+      }).catch(function () {
+        view.textContent = '認証を確認できませんでした。通信を確認して、もう一度開いてください。';
       });
       return;
     }
@@ -1012,3 +1186,4 @@
   window.MichiruApp = { boot: boot };
   boot();
 })();
+
