@@ -32,7 +32,7 @@ test('招待制ゲートウェイでも瞑想スクリプトを認証後に配�
   const gateway = fs.readFileSync(path.join(root, 'runtime/gateway.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'app/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'app/js/app.js'), 'utf8');
-  assert.match(gateway, /'\\/js\\/life-meditation\\.js'/);
-  assert.match(html, /<script src="js\\/life-meditation\\.js"><\\/script>/);
-  assert.match(app, /MichiruLifeMeditation\\.apply\\(content\\)/);
+  assert.ok(gateway.includes("'/js/life-meditation.js'"));
+  assert.ok(html.includes('<script src="js/life-meditation.js"></script>'));
+  assert.ok(app.includes('MichiruLifeMeditation.apply(content)'));
 });
