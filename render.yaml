@@ -8,7 +8,6 @@ services:
     region: oregon
     buildCommand: node --version
     startCommand: npm run start:production
-    healthCheckPath: /health
     numInstances: 1
     disk:
       name: michiru-private-data
