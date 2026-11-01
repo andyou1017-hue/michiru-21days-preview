@@ -121,11 +121,24 @@
       agree.addEventListener('change', function () { start.disabled = !agree.checked; });
       start.addEventListener('click', function () {
         store.setMeta(function (s) { s.consentedAt = new Date().toISOString(); });
-        store.flush();
-        // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
+        if (!store.flush()) {
+          store.state.consentedAt = null;
+          var consentError = document.getElementById('consent-save-error');
+          if (!consentError) {
+            consentError = document.createElement('p');
+            consentError.id = 'consent-save-error';
+            consentError.setAttribute('role', 'alert');
+            start.parentNode.appendChild(consentError);
+          }
+          consentError.textContent = '端末に保存できませんでした。保存できる状態にしてから、もう一度お試しください。';
+          return;
+        }
+        // 同意前はサーバーへ個人記録を送らない。保存・照合の成功後だけ同期を有効化する。
         if (api) {
           api.boot().then(function (res) {
-            if (res && !store.detached) { store.mergeRemote(res.entries || {}); store.remote = api.remote(); store.pushRemote(); }
+            if (res && !store.detached && store.mergeRemote(res.entries || {})) {
+              store.remote = api.remote(); store.pushRemote();
+            }
           }).catch(function () { store.setStatus('offline'); });
         }
         go('#/');
@@ -1174,8 +1187,17 @@
                   msg.textContent = '端末には復元しました。同期の確認ができません。再ログインして記録を確認してください。';
                   return;
                 }
-                if (res.letterStatus && res.letterStatus.sealed) { serverLetterState = res.letterStatus; store.setServerLetter(res.letterStatus); }
-                store.mergeRemote(res.entries || {});
+                if (res.letterStatus && res.letterStatus.sealed) {
+                  if (!store.setServerLetter(res.letterStatus)) {
+                    msg.textContent = '手紙の状態を端末に保存できません。同期は停止したままです。空き容量を確認して再読み込みしてください。';
+                    return;
+                  }
+                  serverLetterState = res.letterStatus;
+                }
+                if (!store.mergeRemote(res.entries || {})) {
+                  msg.textContent = '照合結果を端末に保存できません。同期は停止したままです。空き容量を確認して再読み込みしてください。';
+                  return;
+                }
                 store.remote = api.remote();
                 store.pushRemote();
                 msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
@@ -1305,8 +1327,10 @@
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
         var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: null, letterStatus: res.letterStatus });
-        if (s.state.consentedAt) s.remote = api.remote();
-        if (s.remote) s.mergeRemote(res.entries);
+        if (s.state.consentedAt && s.mergeRemote(res.entries || {})) {
+          s.remote = api.remote();
+          s.pushRemote();
+        }
       }).catch(function () {
         view.innerHTML = '<h1>通信を確認してください</h1><p>認証を確認できませんでした。端末に保存した記録を削除せず、通信が戻ってから開き直してください。</p><p><a href="/">もう一度開く</a></p>';
       });
