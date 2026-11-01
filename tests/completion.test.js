@@ -24,8 +24,8 @@ test.after(async () => {
   if (gateway) await new Promise(r => gateway.server.close(r));
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
-async function student(email, speech = false) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+async function student(email, speech = false, options = {}) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, ...options });
   if (speech) await context.addInitScript(() => {
     const synth = new EventTarget();
     synth.getVoices = () => [{ name: '日本語テスト', lang: 'ja-JP' }];
@@ -96,7 +96,9 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     const before = await page.evaluate(() => { const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.')); return { key, value: localStorage.getItem(key) }; });
     const cached = await page.evaluate(async () => { const all = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) all.push(new URL(request.url).pathname); return all; });
     assert.ok(cached.includes('/offline.html')); assert.ok(cached.every(p => p === '/offline.html' || p.startsWith('/icons/')));
-    await context.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1');
+    await context.setOffline(true);
+    try { await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1', { timeout: 5000 }); }
+    catch (error) { console.log('PWA diagnosis:', page.url(), await page.content().catch(() => 'document unavailable')); throw error; }
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
     await context.setOffline(false); await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
@@ -129,18 +131,41 @@ test('封印後は端末・バックアップに本文を残さず、サーバ�
 });
 
 test('封印の通信失敗で完了を偽らず、書きかけを再開できる', { skip }, async () => {
-  const { context, page, errors } = await student('seal-failure@example.invalid');
+  // PlaywrightのrouteはService Worker経由を遮断できないため、この障害注入試験だけ制御を固定する。
+  const { context, page, errors } = await student('seal-failure@example.invalid', false, { serviceWorkers: 'block' });
   try {
     await page.goto(base + '/#/day/1/5'); await page.waitForSelector('.letter-box'); await page.click('.letter-box > summary'); await page.click('#prep-skip');
     await page.fill('#letter-text', '送信に失敗しても残す');
     await page.route('**/api/future-letter/seal', route => route.abort());
     await page.click('#letter-seal'); await page.click('#confirm-ok');
-    await page.waitForFunction(() => document.getElementById('seal-msg').textContent.length > 0);
+    await page.waitForFunction(() => !!document.getElementById('seal-msg')?.textContent.length);
     assert.equal(await page.inputValue('#letter-text'), '送信に失敗しても残す');
     assert.equal(await page.locator('.letter-box > .seal-state').count(), 0);
     assert.equal((await (await context.request.get(base + '/api/future-letter/status')).json()).sealed, false);
     await page.unroute('**/api/future-letter/seal'); await page.reload(); await page.waitForSelector('#letter-text');
     assert.equal(await page.inputValue('#letter-text'), '送信に失敗しても残す');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('以前の端末内封印を誤ってサーバー保護とせず、確認後に本文を移す', { skip }, async () => {
+  const { context, page, errors } = await student('legacy-migration@example.invalid');
+  const text = '以前の封の本文を守る';
+  try {
+    await page.evaluate(text => {
+      const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.'));
+      const state = JSON.parse(localStorage.getItem(key));
+      state.futureLetter = { text, written_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', sealed_at: '2026-01-01T00:00:00Z', opened_at: null };
+      localStorage.setItem(key, JSON.stringify(state));
+    }, text);
+    await page.reload(); await page.goto(base + '/#/day/1/5'); await page.waitForSelector('#letter-migrate');
+    assert.match(await page.textContent('.letter-box'), /サーバーで保護された封ではありません/);
+    await page.click('#letter-migrate'); await page.click('#confirm-cancel');
+    assert.equal((await (await context.request.get(base + '/api/future-letter/status')).json()).sealed, false);
+    await page.click('#letter-migrate'); await page.click('#confirm-ok');
+    await page.waitForSelector('.letter-box > .seal-state');
+    assert.equal(await page.evaluate(text => JSON.stringify(localStorage).includes(text), text), false);
+    assert.equal((await post(context, '/api/future-letter/open', {})).status(), 423);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

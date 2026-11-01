@@ -594,6 +594,12 @@
   function letterWriteHtml() {
     var l = store.state.futureLetter;
     var head = '<summary>未来からの手紙（任意）</summary>';
+    if (api && store.isSealed() && !l.server_managed) {
+      return '<details class="letter-box" open>' + head +
+        '<p>以前この端末で封をした手紙があります。本文は消していません。現在はサーバーで保護された封ではありません。</p>' +
+        '<p>バックアップを保存してから、サーバーに移すことができます。移した時点から新たに7日間の封になります。</p>' +
+        '<button class="btn" type="button" id="letter-migrate">手紙をサーバーで保護する</button><p id="seal-msg" role="alert"></p></details>';
+    }
     if (store.isOpened()) {
       return '<details class="letter-box" open>' + head +
         '<p class="seal-state">✉ ' + esc(LETTER_REREAD) + '</p><p><a class="btn small" href="#/letter">手紙を読み返す</a></p></details>';
@@ -681,6 +687,22 @@
     });
   }
   function bindLetterWrite() {
+    var migrate = document.getElementById('letter-migrate');
+    if (migrate) migrate.addEventListener('click', function () {
+      askConfirm('本文をサーバーへ送り、端末の本文を取り除きます。今から新たに7日間、開封と書き直しができなくなります。先にバックアップを保存してください。', '移して封をする').then(function (ok) {
+        if (!ok) return;
+        if (!store.flush()) { document.getElementById('seal-msg').textContent = '端末への保存を確認できません。移行は行いません。'; return; }
+        migrate.disabled = true;
+        api.sealLetter(store.state.futureLetter.text).then(function () { return api.letterStatus(); }).then(function (status) {
+          serverLetterState = status;
+          if (!status.sealed || !store.setServerLetter(status)) throw new Error('端末の保存状態を確認できませんでした。');
+          render();
+        }).catch(function (error) {
+          var message = document.getElementById('seal-msg'); if (message) message.textContent = error.message;
+          migrate.disabled = false;
+        });
+      });
+    });
     var t = document.getElementById('letter-text');
     if (!t) return;
     bindLetterPrep();
