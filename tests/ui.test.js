@@ -1223,8 +1223,17 @@ test('P3 未来からの手紙：書く前に33秒または感謝の瞑想で心
   // 書きかけがあれば、次に開いたときはすぐ書ける
   await page.fill('#letter-text', '書きかけ');
   await waitSaved(page);
+  // Safari/WebKit may finish hash-route rendering after navigation has resolved.
+  // Verify that the draft reached persistent storage first, then wait for the
+  // restored writing panel rather than sampling visibility immediately.
+  assert.strictEqual((await stored(page)).futureLetter.text, '書きかけ');
   await page.goto(base + '#/');
   await page.goto(base + '#/day/1/5');
+  assert.strictEqual((await stored(page)).futureLetter.text, '書きかけ');
+  await page.waitForFunction(() => {
+    const input = document.getElementById('letter-text');
+    return input && input.value === '書きかけ' && input.getClientRects().length > 0;
+  });
   assert.ok(await page.isVisible('#letter-text'));
   await context.close();
 });
