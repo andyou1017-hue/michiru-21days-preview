@@ -100,13 +100,12 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     // Also stop the actual origin so this verifies a genuine network failure.
     const port = gateway.server.address().port;
     await new Promise(resolve => { gateway.server.close(resolve); gateway.server.closeAllConnections(); });
-    await context.setOffline(true);
     try { await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1', { timeout: 5000 }); }
     catch (error) { console.log('PWA diagnosis:', page.url(), await page.content().catch(() => 'document unavailable')); throw error; }
     finally { await new Promise(resolve => gateway.server.listen(port, '127.0.0.1', resolve)); }
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
-    await context.setOffline(false); await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
+    await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
     assert.equal(await page.inputValue('#ans-0'), 'PWA再開用の記録');
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
