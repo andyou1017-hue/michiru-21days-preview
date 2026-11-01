@@ -12,6 +12,12 @@
   var guidanceCleanup = null;
   var lessonReader = null;
   var readerCleanup = null;
+  var workWritingSession = null;
+  var letterWritingSession = null;
+  var meditationReader = null;
+  var meditationCleanup = null;
+  var serverLetterState = null;
+  var openedLetterText = null;
   var view = document.getElementById('view');
   var statusEl = document.getElementById('save-status');
 
@@ -116,7 +122,12 @@
       start.addEventListener('click', function () {
         store.setMeta(function (s) { s.consentedAt = new Date().toISOString(); });
         store.flush();
-        if (api) api.consent(); // 本番：同意を記録する
+        // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
+        if (api) {
+          api.boot().then(function (res) {
+            if (res && !store.detached && store.mergeRemote(res.entries || {}) !== false) { store.remote = api.remote(); store.pushRemote(); }
+          }).catch(function () { store.setStatus('offline'); });
+        }
         go('#/');
       });
     }
@@ -125,7 +136,8 @@
   function privacyHtml() {
     if (api) {
       return '<ul class="notice"><li>毎日の気分・問いの回答・行動・ふりかえりは、ログインしたアカウントごとにサーバーにも保存されます。別の受講生には表示されません。</li>' +
-        '<li>「私の発見」や未来からの手紙、個人設定は現時点ではこの端末に保存されます。端末のデータを消すと失われるため、「設定」からバックアップを保存してください。</li>' +
+        '<li>「私の発見」、書きかけの手紙、返事、個人設定はこの端末に保存されます。ログアウト後も同じアカウントで再開できます。端末のデータを消す前に「設定」からバックアップを保存してください。</li>' +
+        '<li>手紙は「封をする」を選ぶとサーバーへ送信します。封印日時と開封可否はサーバーで判断し、7日後まで本文を返しません。封印後の本文は端末や端末のバックアップには含めません。サーバーの保守用バックアップにも保存される場合があります。</li>' +
         '<li>サーバー運営者は保守・障害対応などのため保存データにアクセスできる場合があります。機微な個人情報や他人を特定できる情報は書かないでください。</li>' +
         '<li>通信が切れた場合は端末内に一時保存し、通信復旧後に再送します。送信できない間は画面に表示します。</li></ul>';
     }
@@ -281,7 +293,8 @@
         '<p id="t-guide" class="t-guide">準備ができたら「はじめる」を押してください。</p>' +
         '<ol class="phases">' + m.phases.map(function (p) { return '<li>' + p.from + '〜' + p.to + '秒：' + esc(p.text) + '</li>'; }).join('') + '</ol>' +
         '<div class="timer-ctrl">' +
-        '<button type="button" class="btn primary" id="t-start">はじめる</button>' +
+        '<button type="button" class="btn primary" id="t-voice">音声誘導からはじめる</button>' +
+        '<button type="button" class="btn" id="t-start">音声なしで33秒をはじめる</button>' +
         '<button type="button" class="btn" id="t-pause" hidden>一時停止</button>' +
         '<button type="button" class="btn" id="t-resume" hidden>再開</button>' +
         '<button type="button" class="btn" id="t-reset" hidden>最初から</button>' +
@@ -317,7 +330,7 @@
         '</div>';
     }
 
-    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() : '') + body + '</div>' + stepNav(n, step) + '</article>';
+    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() + window.MichiruWritingPanel.html('work-time', 60) : '') + body + '</div>' + stepNav(n, step) + '</article>';
 
     if (step === 1) bindMood(n, 'mood-am', 'mood_am');
     if (step === 2) bindTimer(n);
@@ -350,7 +363,11 @@
       var u = document.getElementById('undo');
       if (u) u.addEventListener('click', function () { u.disabled = true; store.toggleComplete(n, false); render(); });
     }
-    if (step >= 3) bindLessonRead(d, step);
+    if (step >= 3) {
+      bindLessonRead(d, step);
+      var narration = step === 3 ? [d.intro].concat(d.prompts) : [step === 4 ? d.action : d.reflection];
+      workWritingSession = window.MichiruWritingPanel.bind('work-time', 60, narration, stopSpokenAudio);
+    }
     focusHeading();
   }
 
@@ -361,6 +378,11 @@
       '<button type="button" class="btn small" id="lesson-read-resume" hidden>再開する</button>' +
       '<button type="button" class="btn small" id="lesson-read-stop" hidden>停止する</button></p>' +
       '<p class="muted">端末の日本語音声を使います。書き込んだ記録は読み上げません。</p><p id="lesson-read-status" role="status"></p></section>';
+  }
+  function stopSpokenAudio() {
+    if (lessonReader) lessonReader.stop();
+    if (guidancePlayer) guidancePlayer.stop();
+    if (meditationReader) meditationReader.stop();
   }
   function disposeReader() {
     if (lessonReader) lessonReader.stop(); lessonReader = null;
@@ -383,6 +405,7 @@
       status.textContent = state === 'playing' ? '読み上げています。' : state === 'paused' ? '一時停止中です。再開すると、その段落の最初から読み上げます。' :
         state === 'done' ? '読み上げが終わりました。' : state === 'error' ? '読み上げを続けられませんでした。再開するか、文章を読んで進められます。' :
         state === 'unsupported' ? 'このブラウザでは読み上げを使えません。文章を読んで進められます。' : '';
+      if (state === 'done' && workWritingSession) workWritingSession.start();
     });
     start.disabled = !lessonReader.supported();
     if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。';
@@ -496,7 +519,7 @@
   function futureGuidanceHtml() {
     var g = window.MichiruFutureGuidance;
     if (!g) return '';
-    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">33秒瞑想（33秒×3回）</h4>' +
+    return '<section class="future-audio" aria-labelledby="future-audio-title"><h4 id="future-audio-title">最高の未来の瞑想（33秒×3回）</h4>' +
       '<p class="muted">端末の日本語読み上げを使います。声は端末によって異なります。途中に33秒の無音が3回あります。</p>' +
       '<p class="muted">座って安全に過ごせる場所で使ってください。目を開けたままでも、途中でやめてもかまいません。</p>' +
       '<label for="guidance-voice">読み上げの声</label><select id="guidance-voice"><option value="">端末の日本語音声</option></select>' +
@@ -542,11 +565,11 @@
       var text = s.state === 'playing' ? (section ? section.title : '') + (s.phase === 'silence' ? '：静かに感じる時間です。' : '：読み上げています。') :
         s.state === 'paused' ? '一時停止中です。読み上げ中の再開は、その段階の最初からになります。' :
         s.state === 'error' ? '読み上げを続けられませんでした。再開するか、原稿を読みながら進められます。' :
-        s.state === 'done' ? '33秒瞑想が終わりました。感じたことを、書き残してみましょう。' :
+        s.state === 'done' ? '最高の未来の瞑想が終わりました。感じたことを、書き残してみましょう。' :
         s.state === 'unsupported' ? 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。' : '音声は停止しています。';
       if (status.textContent !== text) status.textContent = text;
       seconds.textContent = s.phase === 'silence' && s.remaining !== undefined ? '無音の時間：あと' + s.remaining + '秒' : '';
-    }, function () { reveal(); document.getElementById('letter-text').focus(); });
+    }, function () { reveal(); if (letterWritingSession) letterWritingSession.start(); document.getElementById('letter-text').focus(); });
     start.disabled = !guidancePlayer.supported();
     if (start.disabled) status.textContent = 'このブラウザでは読み上げを使えません。下の原稿を読んで進められます。';
     updateVoices();
@@ -571,6 +594,12 @@
   function letterWriteHtml() {
     var l = store.state.futureLetter;
     var head = '<summary>未来からの手紙（任意）</summary>';
+    if (api && store.isSealed() && !l.server_managed) {
+      return '<details class="letter-box" open>' + head +
+        '<p>以前この端末で封をした手紙があります。本文は消していません。現在はサーバーで保護された封ではありません。</p>' +
+        '<p>バックアップを保存してから、サーバーに移すことができます。移した時点から新たに7日間の封になります。</p>' +
+        '<button class="btn" type="button" id="letter-migrate">手紙をサーバーで保護する</button><p id="seal-msg" role="alert"></p></details>';
+    }
     if (store.isOpened()) {
       return '<details class="letter-box" open>' + head +
         '<p class="seal-state">✉ ' + esc(LETTER_REREAD) + '</p><p><a class="btn small" href="#/letter">手紙を読み返す</a></p></details>';
@@ -596,6 +625,7 @@
       '<p class="seal-state">心が整ったら、その満たされた感覚のまま、手紙を書いてみましょう。</p></div>' +
       '<p><button type="button" class="btn small" id="prep-skip"' + (ready ? ' hidden' : '') + '>瞑想をせずに書く</button></p></section>' +
       '<div id="letter-write"' + (ready ? '' : ' hidden') + '>' +
+      window.MichiruWritingPanel.html('letter-time', 180) +
       '<div class="letter-guide">' + lines(LETTER_GUIDE) + '</div>' +
       '<label for="letter-text" class="sr-only">未来のあなたから、今のあなたへの手紙</label>' +
       '<textarea id="letter-text" rows="7" maxlength="4000">' + esc(l ? l.text : '') + '</textarea>' +
@@ -657,12 +687,56 @@
     });
   }
   function bindLetterWrite() {
+    var migrate = document.getElementById('letter-migrate');
+    if (migrate) migrate.addEventListener('click', function () {
+      askConfirm('本文をサーバーへ送り、端末の本文を取り除きます。今から新たに7日間、開封と書き直しができなくなります。先にバックアップを保存してください。', '移して封をする').then(function (ok) {
+        if (!ok) return;
+        if (!store.flush()) { document.getElementById('seal-msg').textContent = '端末への保存を確認できません。移行は行いません。'; return; }
+        migrate.disabled = true;
+        api.sealLetter(store.state.futureLetter.text).then(function () { return api.letterStatus(); }).then(function (status) {
+          serverLetterState = status;
+          if (!status.sealed || !store.setServerLetter(status)) throw new Error('端末の保存状態を確認できませんでした。');
+          render();
+        }).catch(function (error) {
+          var message = document.getElementById('seal-msg'); if (message) message.textContent = error.message;
+          migrate.disabled = false;
+        });
+      });
+    });
     var t = document.getElementById('letter-text');
     if (!t) return;
     bindLetterPrep();
+    letterWritingSession = window.MichiruWritingPanel.bind('letter-time', 180, ['書く時間は3分間です。もう少しゆっくり書きたいときは、タイマーを一時停止してください。時間が終わっても、途中で書くのをやめる必要はありません。'], stopSpokenAudio);
     var seal = document.getElementById('letter-seal');
+    function sealedView() {
+      var box = document.querySelector('.letter-box');
+      if (!box) return;
+      disposeGuidance();
+      if (letterWritingSession) letterWritingSession.dispose(); letterWritingSession = null;
+      box.outerHTML = letterWriteHtml();
+      var state = document.querySelector('.seal-state');
+      if (state) { state.setAttribute('tabindex', '-1'); state.focus(); }
+    }
     t.addEventListener('input', function () { store.setFutureLetter(t.value); seal.disabled = !t.value.trim(); });
     seal.addEventListener('click', function () {
+      if (api) {
+        askConfirm(LETTER_SEAL_CONFIRM + '\n本文をサーバーへ送り、端末の本文を取り除きます。封印の時刻と開封可否はサーバーで確認します。', 'サーバーに保存して封をする').then(function (ok) {
+          if (!ok) return;
+          store.setFutureLetter(t.value);
+          if (!store.flush()) { document.getElementById('seal-msg').textContent = '端末に保存できないため、封印は行いません。先にバックアップを保存してください。'; return; }
+          seal.disabled = true; t.readOnly = true;
+          api.sealLetter(t.value).then(function () { return api.letterStatus(); }).then(function (status) {
+            serverLetterState = status;
+            if (!status.sealed || !store.setServerLetter(status)) throw new Error('端末の本文の除去を確認できませんでした。記録をバックアップして保存状態を確認してください。');
+            t.value = ''; sealedView();
+          }).catch(function (error) {
+            var message = document.getElementById('seal-msg');
+            if (message) message.textContent = error.message + ' 封の状態は、通信が戻ってから画面を開き直して確認してください。書きかけは保存しています。';
+            seal.disabled = false; t.readOnly = false;
+          });
+        });
+        return;
+      }
       askConfirm(LETTER_SEAL_CONFIRM, '封をする').then(function (ok) {
         if (!ok) return null;
         seal.disabled = true;
@@ -693,11 +767,17 @@
   }
   // 状態：opened（開封済み）／ready（届いている）／locked（まだ7日たっていない）／unknown（時刻を確かめられない）
   function letterStatus(now) {
+    if (api) {
+      if (!serverLetterState) return 'unknown';
+      if (!serverLetterState.sealed) return 'missing';
+      return serverLetterState.available ? (serverLetterState.opened ? 'opened' : 'ready') : 'locked';
+    }
     if (store.isOpened()) return 'opened';
     if (typeof now !== 'number') return 'unknown';
     return store.canOpen(now) ? 'ready' : 'locked';
   }
   function letterStateHtml(status, day) {
+    if (status === 'missing') return '<h2 id="letter-read-title">サーバーに封印された手紙はありません</h2><p>この端末の以前の手紙は消していません。バックアップを保存し、Day 01から確認してください。端末内だけの封はサーバーの開封制限ではありません。</p>';
     if (status === 'opened') {
       return '<h2 id="letter-read-title">未来のあなたからの手紙</h2><p class="seal-state">✉ 開封済み</p>' +
         '<p class="muted">' + esc(LETTER_REREAD) + '</p>' +
@@ -721,6 +801,15 @@
   function fillLetterRead(day) {
     var sec = document.getElementById('letter-read');
     if (!sec) return;
+    if (api) {
+      api.letterStatus().then(function (status) {
+        if (!document.body.contains(sec)) return;
+        serverLetterState = status;
+        if (status.sealed && !store.setServerLetter(status)) throw new Error('端末の保存状態を確認できませんでした。');
+        sec.removeAttribute('aria-busy'); sec.innerHTML = letterStateHtml(letterStatus(null), day); bindLetterRead(day, null);
+      }).catch(function (error) { if (document.body.contains(sec)) { sec.removeAttribute('aria-busy'); sec.innerHTML = '<p role="alert">' + esc(error.message) + '</p>'; } });
+      return;
+    }
     window.MichiruClock.trustedNow().then(function (now) {
       if (!document.body.contains(sec)) return; // 画面を移ったあと
       store.rebaseSeal(now);
@@ -736,7 +825,7 @@
   function letterBodyHtml(day) {
     var l = store.state.futureLetter;
     var r = day ? store.state.futureReplies[day] : null;
-    return '<blockquote class="letter-quote">' + nl2br(l.text) + '</blockquote>' +
+    return '<blockquote class="letter-quote">' + nl2br(api ? openedLetterText : l.text) + '</blockquote>' +
       '<p class="disc-meta">' + (writtenOn(l) ? writtenOn(l) + '、' : '') + '未来のあなたになって書いた手紙</p>' +
       (day ? '<div class="field"><label for="letter-reply">手紙を読んで、今日のあなたが感じたこと（任意）</label>' +
         '<textarea id="letter-reply" rows="3" maxlength="4000">' + esc(r ? r.text : '') + '</textarea></div>' : '') +
@@ -761,6 +850,17 @@
     var open = document.getElementById('letter-open');
     if (!open) return;
     open.addEventListener('click', function () {
+      if (api) {
+        open.disabled = true;
+        api.openLetter().then(function (letter) {
+          if (!document.body.contains(sec)) return;
+          openedLetterText = letter.text;
+          serverLetterState.opened = true; serverLetterState.openedAt = letter.openedAt;
+          store.setServerLetter(serverLetterState);
+          sec.innerHTML = letterStateHtml('opened', day); bindLetterRead(day, null); showLetterBody(day);
+        }).catch(function (error) { if (document.body.contains(sec)) { open.disabled = false; sec.insertAdjacentHTML('beforeend', '<p class="warn-msg" role="alert">' + esc(error.message) + '</p>'); } });
+        return;
+      }
       if (store.isOpened()) { showLetterBody(day); return; }
       open.disabled = true; // 二重押しを防ぐ
       // 押したときにも、もう一度時刻を確かめる
@@ -868,10 +968,13 @@
     }
     function show() {
       var st = timer.state;
-      bStart.hidden = st !== 'idle';
-      bPause.hidden = st !== 'running';
-      bResume.hidden = st !== 'paused';
-      bReset.hidden = st === 'idle';
+      var speaking = meditationReader && meditationReader.state === 'playing';
+      var voicePaused = meditationReader && meditationReader.state === 'paused';
+      bStart.hidden = st !== 'idle' || speaking || voicePaused;
+      document.getElementById('t-voice').hidden = bStart.hidden;
+      bPause.hidden = st !== 'running' && !speaking;
+      bResume.hidden = st !== 'paused' && !voicePaused;
+      bReset.hidden = st === 'idle' && !speaking && !voicePaused;
       bSkip.textContent = st === 'done' ? '次へ →' : 'とばして次へ';
       bSkip.classList.toggle('primary', st === 'done');
     }
@@ -883,10 +986,27 @@
       guide.textContent = '33秒が終わりました。おつかれさまでした。';
       show();
     });
-    bStart.addEventListener('click', function () { timer.start(); show(); });
-    bPause.addEventListener('click', function () { timer.pause(); show(); });
-    bResume.addEventListener('click', function () { timer.start(); show(); });
-    bReset.addEventListener('click', function () { timer.reset(); guide.textContent = '準備ができたら「はじめる」を押してください。'; show(); });
+    document.getElementById('t-voice').addEventListener('click', function () {
+      stopSpokenAudio(); timer.reset();
+      meditationReader = new window.MichiruFutureGuidance.Reader(m.phases.map(function (p) { return p.text; }), function (state) {
+        if (state === 'done') { timer.start(); }
+        else if (state === 'playing') guide.textContent = '音声誘導中です。終わってから33秒を計ります。';
+        else if (state === 'paused') guide.textContent = '音声を一時停止しています。';
+        else if (state === 'error' || state === 'unsupported') guide.textContent = '音声を再生できませんでした。文章を読み、「音声なしで33秒をはじめる」も選べます。';
+        show();
+      });
+      meditationReader.start();
+    });
+    bStart.addEventListener('click', function () { if (meditationReader) meditationReader.stop(); timer.start(); show(); });
+    bPause.addEventListener('click', function () { if (meditationReader && meditationReader.state === 'playing') meditationReader.pause(); else timer.pause(); show(); });
+    bResume.addEventListener('click', function () { if (meditationReader && meditationReader.state === 'paused') meditationReader.resume(); else timer.start(); show(); });
+    bReset.addEventListener('click', function () { if (meditationReader) meditationReader.stop(); timer.reset(); guide.textContent = '準備ができたら音声誘導からはじめられます。'; show(); });
+    function visibility() {
+      if (document.visibilityState === 'hidden' && meditationReader) meditationReader.pause();
+      if (document.visibilityState === 'visible' && timer && timer.state === 'running') timer.tick();
+    }
+    document.addEventListener('visibilitychange', visibility);
+    meditationCleanup = function () { document.removeEventListener('visibilitychange', visibility); };
     show();
   }
 
@@ -1062,10 +1182,41 @@
             'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
             var recovering = store.recoveryRequired;
-            if (!store.importBackup(raw)) { msg.textContent = '端末に保存できなかったため、記録を戻せませんでした（いまの記録はそのままです）。'; return; }
+            if (!store.importBackup(raw)) {
+              msg.textContent = '復元できませんでした。保存・同期中の場合は少し待ってからお試しください。端末に保存できない場合も、いまの記録はそのままです。';
+              return;
+            }
             applyFont();
             if (recovering) { renderSettings(); msg = document.getElementById('import-msg'); }
-            msg.textContent = '記録を戻しました。';
+            if (api && store.state.consentedAt) {
+              // 復元ファイルの古い記録を直接送信せず、必ずサーバーの最新記録と照合する。
+              msg.textContent = '端末に復元しました。サーバーの最新記録と照合しています…';
+              api.boot().then(function (res) {
+                if (!res || store.detached) {
+                  msg.textContent = '端末には復元しました。同期の確認ができません。再ログインして記録を確認してください。';
+                  return;
+                }
+                if (res.letterStatus && res.letterStatus.sealed) {
+                  serverLetterState = res.letterStatus;
+                  if (!store.setServerLetter(res.letterStatus)) { msg.textContent = '手紙の保存状態を確認できないため同期を停止しています。'; return; }
+                }
+                if (store.mergeRemote(res.entries || {}) === false) {
+                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                  return;
+                }
+                store.remote = api.remote();
+                store.pushRemote();
+                msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
+              }).catch(function () {
+                store.setStatus('offline');
+                msg.textContent = '端末には復元しましたが、サーバーと照合できません。通信が戻ったら画面を再読み込みしてください。';
+              });
+            } else if (api) {
+              msg.textContent = '端末に復元しました。記録の送信前に、はじめにの同意を確認してください。';
+              go('#/intro');
+            } else {
+              msg.textContent = '記録を戻しました。';
+            }
           });
         } catch (e) {
           msg.textContent = '読み込めませんでした：' + (e.message || 'ファイルの形式が違います。');
@@ -1097,7 +1248,7 @@
     if (!api || !account) return;
     document.getElementById('logout').addEventListener('click', function () {
       store.flush();
-      api.logout().then(function () { store.detach(!!(window.MICHIRU_CONFIG && window.MICHIRU_CONFIG.localOnly)); location.reload(); });
+      api.logout().then(function () { store.detach(true); location.reload(); });
     });
     document.getElementById('delete-account').addEventListener('click', function () {
       askConfirm('アカウントと、サーバーに保存したすべての記録を削除します。元に戻せません。', 'アカウントを削除する').then(function (ok) {
@@ -1112,6 +1263,11 @@
 
   // ---------- 振り分け ----------
   function render() {
+    openedLetterText = null;
+    if (meditationCleanup) meditationCleanup(); meditationCleanup = null;
+    if (workWritingSession) workWritingSession.dispose(); workWritingSession = null;
+    if (letterWritingSession) letterWritingSession.dispose(); letterWritingSession = null;
+    if (meditationReader) meditationReader.stop(); meditationReader = null;
     disposeReader();
     disposeGuidance();
     if (timer) { timer.dispose(); timer = null; }
@@ -1151,6 +1307,10 @@
     C = window.MichiruLifeMeditation ? window.MichiruLifeMeditation.apply(content) : content;
     store = new window.MichiruStore.Store(opts);
     store.onStatus(showStatus);
+    if (opts && opts.letterStatus) {
+      serverLetterState = opts.letterStatus;
+      if (serverLetterState.sealed) store.setServerLetter(serverLetterState);
+    }
     applyFont();
     window.addEventListener('hashchange', render);
     // 画面を閉じる・裏に回るときは、待たずに保存する
@@ -1172,10 +1332,11 @@
       Promise.resolve().then(function () { return api.boot(view); }).then(function (res) {
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
-        var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: api.remote() });
+        var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: null, letterStatus: res.letterStatus });
+        if (s.state.consentedAt) s.remote = api.remote();
         if (s.remote) s.mergeRemote(res.entries);
       }).catch(function () {
-        view.textContent = '認証を確認できませんでした。通信を確認して、もう一度開いてください。';
+        view.innerHTML = '<h1>通信を確認してください</h1><p>認証を確認できませんでした。端末に保存した記録を削除せず、通信が戻ってから開き直してください。</p><p><a href="/">もう一度開く</a></p>';
       });
       return;
     }

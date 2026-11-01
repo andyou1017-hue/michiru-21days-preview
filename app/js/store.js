@@ -118,6 +118,7 @@
       var fl = s.futureLetter;
       fl.sealed_at = isoOrNull(raw.futureLetter.sealed_at);
       fl.sealed_trusted_at = fl.sealed_at ? isoOrNull(raw.futureLetter.sealed_trusted_at) : null;
+      if (raw.futureLetter.server_managed === true && fl.sealed_at) { fl.server_managed = true; fl.text = ''; }
       var op = fl.sealed_at ? isoOrNull(raw.futureLetter.opened_at) : null;
       fl.opened_at = op && Date.parse(op) >= unlockTime(fl) ? op : null;
     }
@@ -391,7 +392,12 @@
     this.state.futureLetter = l;
     this.scheduleSave();
   };
-  Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && this.state.futureLetter.text.trim()); };
+  Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && (this.state.futureLetter.text.trim() || (this.state.futureLetter.server_managed && this.state.futureLetter.sealed_at))); };
+  Store.prototype.setServerLetter = function (status) {
+    if (!status || !status.sealed) return false;
+    this.state.futureLetter = { text: '', written_at: status.sealedAt, updated_at: status.sealedAt, sealed_at: status.sealedAt, sealed_trusted_at: status.sealedAt, opened_at: status.openedAt || null, server_managed: true };
+    return this.flush();
+  };
   Store.prototype.isSealed = function () { return !!(this.hasFutureLetter() && this.state.futureLetter.sealed_at); };
   Store.prototype.isOpened = function () { return !!(this.isSealed() && this.state.futureLetter.opened_at); };
   // 端末の時計が戻されても、封の時刻が早まらないように、見た時刻の最大値を覚える
@@ -468,21 +474,34 @@
       if (e && (e.completed_at || e.mood_am !== null || e.mood_pm !== null || e.reflection || e.action_text || e.action_status ||
         e.answers.some(function (a) { return a && a.length; }))) days++;
     }
-    return { days: days, discoveries: st.discoveries.length, letter: !!(st.futureLetter && st.futureLetter.text.trim()) || !!(st.letter && st.letter.text.trim()) };
+    return { days: days, discoveries: st.discoveries.length, letter: !!(st.futureLetter && (st.futureLetter.text.trim() || st.futureLetter.server_managed)) || !!(st.letter && st.letter.text.trim()) };
   }
   Store.prototype.summary = function () { return summarize(this.state); };
 
   Store.prototype.importBackup = function (raw) {
     var s = normalizeState(raw);
+    // 同期中の復元は、送信中の古い記録が復元後に到着する危険がある。
+    if (this.pushing || Object.keys(this.pendingRemote).length) return false;
     var prev = this.state;
     var recovery = this.recoveryRequired;
+    var previousRemote = this.remote;
+    var previousDirty = this.dirtyDays;
+    var previousPending = this.pendingRemote;
+    // バックアップの同意日時は、現在のアカウントの同意として流用しない。
+    s.consentedAt = prev.consentedAt;
+    // 復元は端末内だけで確定する。サーバーへの差分送信は、最新データを再取得し、
+    // mergeRemote() で更新時刻を照合した後にアプリ側が明示的に再開する。
+    this.remote = null;
+    this.dirtyDays = {};
+    this.pendingRemote = {};
     this.recoveryRequired = false;
     this.state = s;
-    for (var d = 1; d <= 21; d++) this.dirtyDays[d] = true;
-    if (!this.flush()) { // 保存できなかったら、元の記録のままにする（画面と端末の中身を食い違わせない）
+    if (!this.flush()) { // 保存できなかったら元の状態と同期設定を戻す
       this.state = prev;
       this.recoveryRequired = recovery;
-      this.dirtyDays = {};
+      this.remote = previousRemote;
+      this.dirtyDays = previousDirty;
+      this.pendingRemote = previousPending;
       this.backend.memory = JSON.parse(JSON.stringify(prev));
       return false;
     }
@@ -491,15 +510,16 @@
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
   Store.prototype.mergeRemote = function (remoteEntries) {
-    if (this.recoveryRequired) { this.setStatus('recovery'); return; }
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];
       if (r && (!l || (r.updated_at || '') > (l.updated_at || ''))) this.state.entries[d] = r;
       else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = ++this.remoteRevision;
     }
-    if (this.backend.write(this.state)) this.pushRemote();
-    else this.setStatus(this.localStatus(false));
+    if (this.backend.write(this.state)) { this.pushRemote(); return true; }
+    this.setStatus(this.localStatus(false));
+    return false;
   };
 
   window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };

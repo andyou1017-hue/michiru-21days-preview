@@ -35,6 +35,7 @@ test('招待前の静的プレビューで21日すべての花・ミニ解説を
   for (let day = 1; day <= 21; day++) {
     await page.goto('http://127.0.0.1:' + server.address().port + '/#/day/' + day + '/3');
     await page.waitForSelector('.day-head .head-flower svg.flower');
+    await page.waitForFunction(day => document.querySelector('.day-head .eyebrow')?.textContent === 'Day ' + String(day).padStart(2, '0') + ' / 21', day);
     const drawn = await page.evaluate(() => {
       const svg = document.querySelector('.head-flower svg.flower');
       const label = document.querySelector('.head-flower .flower-name');
@@ -56,6 +57,10 @@ test('招待前の静的プレビューで21日すべての花・ミニ解説を
     assert.ok(drawn.visible && drawn.svgMarkup > 0, 'Day ' + day + ' の花が実際に描画されない');
     assert.ok(drawn.guideVisible, 'Day ' + day + ' のミニ解説が表示されない');
     assert.equal(drawn.overflow, false, 'Day ' + day + ' で横スクロールが発生');
+    if (process.env.MICHIRU_SCREENSHOTS) {
+      fs.mkdirSync(process.env.MICHIRU_SCREENSHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.MICHIRU_SCREENSHOTS, 'day-' + String(day).padStart(2, '0') + '.png'), fullPage: true, animations: 'disabled' });
+    }
   }
   assert.equal(names.size, 21);
   assert.deepEqual(errors, []);

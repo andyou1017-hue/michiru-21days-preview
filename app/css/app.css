@@ -198,6 +198,7 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 .guidance-transcript summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .lesson-reader { margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .lesson-reader p { margin: 6px 0; }
+.writing-time { padding: 12px; margin: 12px 0; border: 1px solid var(--border); border-radius: 16px; background: var(--beige); }
 .future-feel { font-family: var(--serif); line-height: 1.9; margin: 8px 0; }
 .future-feel p { margin: 0 0 .3em; }
 .letter-arrived { margin: -6px 0 16px; text-align: center; }

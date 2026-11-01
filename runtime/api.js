@@ -9,9 +9,10 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {})
     }).then(function (r) {
-      if (r.status === 401) throw new Error('ログインが切れました。もう一度ログインしてください。');
-      if (!r.ok) throw new Error('サーバーに保存できませんでした。');
-      return r.json();
+      return r.json().then(function (data) {
+        if (!r.ok) { var error = new Error(r.status === 401 ? 'ログインが切れました。もう一度ログインしてください。' : (data.error || 'サーバーに保存できませんでした。')); error.status = r.status; throw error; }
+        return data;
+      });
     });
   }
   window.MichiruApi = {
@@ -30,6 +31,12 @@
       };
     },
     consent: function () {},
+    letterStatus: function () { return fetch('/api/future-letter/status', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('手紙の状態を確認できませんでした。通信とログインを確認してください。');
+      return r.json();
+    }); },
+    sealLetter: function (text) { return post('/api/future-letter/seal', { text: text }); },
+    openLetter: function () { return post('/api/future-letter/open'); },
     logout: function () { return post('/api/logout'); },
     deleteAccount: function () { return post('/api/delete-account'); }
   };
