@@ -1068,10 +1068,38 @@
             'いまの記録：' + line(cur), '置き換える').then(function (ok) {
             if (!ok) { msg.textContent = '取り消しました。'; return; }
             var recovering = store.recoveryRequired;
-            if (!store.importBackup(raw)) { msg.textContent = '端末に保存できなかったため、記録を戻せませんでした（いまの記録はそのままです）。'; return; }
+            if (!store.importBackup(raw)) {
+              msg.textContent = '復元できませんでした。保存・同期中の場合は少し待ってからお試しください。端末に保存できない場合も、いまの記録はそのままです。';
+              return;
+            }
             applyFont();
             if (recovering) { renderSettings(); msg = document.getElementById('import-msg'); }
-            msg.textContent = '記録を戻しました。';
+            if (api && store.state.consentedAt) {
+              // 復元ファイルの古い記録を直接送信せず、必ずサーバーの最新記録と照合する。
+              msg.textContent = '端末に復元しました。サーバーの最新記録と照合しています…';
+              api.boot().then(function (res) {
+                if (!res || store.detached) {
+                  msg.textContent = '端末には復元しました。同期の確認ができません。再ログインして記録を確認してください。';
+                  return;
+                }
+                if (store.mergeRemote(res.entries || {}) === false) {
+                  // 保存できなかった照合結果をサーバーへ送信しない。
+                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                  return;
+                }
+                store.remote = api.remote();
+                store.pushRemote();
+                msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
+              }).catch(function () {
+                store.setStatus('offline');
+                msg.textContent = '端末には復元しましたが、サーバーと照合できません。通信が戻ったら画面を再読み込みしてください。';
+              });
+            } else if (api) {
+              msg.textContent = '端末に復元しました。記録の送信前に、はじめにの同意を確認してください。';
+              go('#/intro');
+            } else {
+              msg.textContent = '記録を戻しました。';
+            }
           });
         } catch (e) {
           msg.textContent = '読み込めませんでした：' + (e.message || 'ファイルの形式が違います。');
