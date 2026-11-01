@@ -2,16 +2,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync, backup } = require('node:sqlite');
+const { assertPrivatePath } = require('./private-path');
 
 async function createBackup(source, destination) {
-  const appRoot = path.resolve(__dirname, '../app');
-  for (const file of [source, destination]) {
-    if (typeof file !== 'string' || !path.isAbsolute(file) || file === appRoot || file.startsWith(appRoot + path.sep)) {
-      throw Error('DBとバックアップは公開領域の外の絶対パスにしてください。');
-    }
-  }
+  assertPrivatePath(source);
+  assertPrivatePath(destination);
   if (!fs.existsSync(source)) throw Error('元のDBがありません。');
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+  // Recheck after creating the parent, including symbolic links.
+  assertPrivatePath(destination);
   fs.closeSync(fs.openSync(destination, 'wx', 0o600));
   let db;
   try {
