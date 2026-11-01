@@ -37,6 +37,25 @@ function integrity(file) {
   } finally { db.close(); }
 }
 
+// Stage on the destination filesystem, then atomically publish with a hard link.
+// A failed copy must never leave a truncated file at the requested backup path.
+// linkSync refuses to replace an existing file, including a concurrent writer's.
+function publishVerifiedFile(source, destination) {
+  const parent = path.dirname(destination);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  assertPrivatePath(destination);
+  const tempDir = fs.mkdtempSync(path.join(parent, '.michiru-publish-'));
+  fs.chmodSync(tempDir, 0o700);
+  try {
+    const temporary = path.join(tempDir, 'verified.tmp');
+    fs.copyFileSync(source, temporary, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(temporary, 0o600);
+    fs.linkSync(temporary, destination); // Atomic, exclusive publication on this filesystem.
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function exportEncryptedBackup(source, destination, passphrase) {
   validate(source, destination, passphrase);
   const dir = privateTemp();
@@ -54,8 +73,7 @@ async function exportEncryptedBackup(source, destination, passphrase) {
     await pipeline(fs.createReadStream(snapshot), cipher, fs.createWriteStream(staged, { flags: 'a', mode: 0o600 }));
     fs.appendFileSync(staged, cipher.getAuthTag());
     // Publish only a complete encrypted artifact; never overwrite an older backup.
-    fs.copyFileSync(staged, destination, fs.constants.COPYFILE_EXCL);
-    fs.chmodSync(destination, 0o600);
+    publishVerifiedFile(staged, destination);
     return { bytes: fs.statSync(destination).size };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -90,8 +108,7 @@ async function restoreEncryptedBackup(source, destination, passphrase) {
     integrity(snapshot); // Only authenticated, valid SQLite can be restored.
     fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
     assertPrivatePath(destination);
-    fs.copyFileSync(snapshot, destination, fs.constants.COPYFILE_EXCL);
-    fs.chmodSync(destination, 0o600);
+    publishVerifiedFile(snapshot, destination);
     return { bytes: fs.statSync(destination).size };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
