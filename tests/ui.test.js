@@ -1106,6 +1106,9 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   await page.click('#start');
   await page.waitForSelector('.day-list');
   await page.goto(base + '#/discoveries');
+  // Safari/WebKit may still be rendering the previous route after hash navigation.
+  // Wait for the discoveries empty state, not merely the URL change.
+  await page.waitForFunction(() => location.hash === '#/discoveries' && /まだありません/.test(document.querySelector('main')?.textContent || ''));
   assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
 });
