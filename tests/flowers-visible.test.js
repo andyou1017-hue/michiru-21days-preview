@@ -24,6 +24,8 @@ test('招待前の静的プレビューで21日すべての花・ミニ解説を
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('http://127.0.0.1:' + server.address().port + '/');
+  await page.waitForSelector('.intro-flower svg.flower');
+  assert.ok(await page.locator('.intro-flower svg.flower').evaluate(el => el.getBoundingClientRect().width >= 100));
   await page.check('#agree');
   await page.click('#start');
   await page.waitForSelector('.day-list');
