@@ -1082,7 +1082,11 @@
                   msg.textContent = '端末には復元しました。同期の確認ができません。再ログインして記録を確認してください。';
                   return;
                 }
-                store.mergeRemote(res.entries || {});
+                if (store.mergeRemote(res.entries || {}) === false) {
+                  // 保存できなかった照合結果をサーバーへ送信しない。
+                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                  return;
+                }
                 store.remote = api.remote();
                 store.pushRemote();
                 msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
