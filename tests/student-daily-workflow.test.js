@@ -3,13 +3,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { createStaticServer } = require('../tools/static-server');
-let chromium; try { chromium = require('playwright').chromium; } catch (_) {}
+// CIは Chromium/WebKit を別々にインストールするため、実行環境に合わせて選択する。
+const BROWSER = process.env.PW_BROWSER || 'chromium';
+let browserType; try { browserType = require('playwright')[BROWSER]; } catch (_) {}
 
-test('受講生用Day1は朝夜スライダー・ワーク記入・行動・ふりかえりを保存し再表示する', { skip: !chromium && 'Playwrightがないため実画面を確認できません' }, async t => {
+test('受講生用Day1は朝夜スライダー・ワーク記入・行動・ふりかえりを保存し再表示する', { skip: !browserType && 'Playwrightがないため実画面を確認できません' }, async t => {
   const server = createStaticServer(path.join(__dirname, '..', 'app'));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width:375,height:812},isMobile:true,hasTouch:true});
   const url = 'http://127.0.0.1:' + server.address().port + '/';
