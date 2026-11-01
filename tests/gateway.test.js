@@ -24,6 +24,19 @@ async function fixture(t, options = {}) {
   }
   return { gateway, base, post, enroll, databasePath: path.join(dir, 'private.sqlite'), advance: ms => { clock += ms; } };
 }
+test('受講生DBを公開リポジトリ内へ直接・リンク経由で作成できない', t => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const direct = path.join(repoRoot, 'should-never-create-student-db.sqlite');
+  const opts = { origin: 'http://127.0.0.1:0', development: true };
+  assert.throws(() => createGateway({ ...opts, databasePath: direct }), /リポジトリ/);
+  assert.equal(fs.existsSync(direct), false);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'michiru-private-db-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const link = path.join(dir, 'repo-link');
+  fs.symlinkSync(repoRoot, link, 'dir');
+  assert.throws(() => createGateway({ ...opts, databasePath: path.join(link, 'should-never-create-student-db.sqlite') }), /リポジトリ/);
+  assert.equal(fs.existsSync(direct), false);
+});
 test('未招待者は教材HTML・JS・JSON・bootstrapの直URLからも入れない', async t => {
   const { base } = await fixture(t);
   assert.match(await (await fetch(base)).text(), /招待を受け取った方だけ/);
