@@ -97,12 +97,15 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     const cached = await page.evaluate(async () => { const all = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) all.push(new URL(request.url).pathname); return all; });
     assert.ok(cached.includes('/offline.html')); assert.ok(cached.every(p => p === '/offline.html' || p.startsWith('/icons/')));
     // Browser offline emulation does not reliably stop Service Worker network fetches.
-    // Also stop the actual origin so this verifies a genuine network failure.
-    const port = gateway.server.address().port;
-    await new Promise(resolve => { gateway.server.close(resolve); gateway.server.closeAllConnections(); });
+    // Drop origin connections without closing its DB or changing application code.
+    const handlers = gateway.server.listeners('request');
+    gateway.server.removeAllListeners('request');
+    const rejectConnection = req => req.socket.destroy();
+    gateway.server.on('request', rejectConnection);
+    gateway.server.closeAllConnections();
     try { await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1', { timeout: 5000 }); }
     catch (error) { console.log('PWA diagnosis:', page.url(), await page.content().catch(() => 'document unavailable')); throw error; }
-    finally { await new Promise(resolve => gateway.server.listen(port, '127.0.0.1', resolve)); }
+    finally { gateway.server.removeListener('request', rejectConnection); handlers.forEach(handler => gateway.server.on('request', handler)); }
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
     await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
