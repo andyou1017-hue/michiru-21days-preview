@@ -231,3 +231,7 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
   .door-flower .flower { animation: flower-sway 6s ease-in-out infinite; transform-origin: 50% 90%; }
 }
 @keyframes flower-sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+
+/* 初回の案内画面にもDay1の花を見せる。本文の前に余白を確保する。 */
+.intro-flower { display: flex; justify-content: center; margin: 10px auto 14px; }
+.intro-flower .flower { width: 132px; height: 132px; filter: drop-shadow(0 4px 10px rgba(166, 107, 32, .12)); }
