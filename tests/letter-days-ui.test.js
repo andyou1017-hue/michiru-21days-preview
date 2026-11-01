@@ -62,6 +62,9 @@ test('招待制のDay7/14/21：封印後7日未満は本文を隠し、7日後�
 
   async function checkDay(day, locked) {
     await page.goto(base + '/#/day/' + day + '/5');
+    // Revisit the same route after advancing the server clock: a same-URL
+    // navigation alone does not re-run hashchange or refresh letter status.
+    await page.reload();
     await page.waitForSelector('#letter-read:not([aria-busy])');
     const section = page.locator('#letter-read');
     if (locked) {
