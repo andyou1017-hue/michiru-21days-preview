@@ -96,6 +96,7 @@
     view.innerHTML =
       '<section class="card intro">' +
       '<p class="eyebrow">満ちる眼</p>' +
+      '<div class="intro-flower">' + flower(1, 132) + '</div>' +
       '<h1>' + esc(i.title) + '</h1>' +
       '<p class="lead">' + esc(i.lead) + '</p>' +
       '<p>' + esc(i.heart) + '</p>' +
