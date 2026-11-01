@@ -96,9 +96,14 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
     const before = await page.evaluate(() => { const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.')); return { key, value: localStorage.getItem(key) }; });
     const cached = await page.evaluate(async () => { const all = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) all.push(new URL(request.url).pathname); return all; });
     assert.ok(cached.includes('/offline.html')); assert.ok(cached.every(p => p === '/offline.html' || p.startsWith('/icons/')));
+    // Browser offline emulation does not reliably stop Service Worker network fetches.
+    // Also stop the actual origin so this verifies a genuine network failure.
+    const port = gateway.server.address().port;
+    await new Promise(resolve => { gateway.server.close(resolve); gateway.server.closeAllConnections(); });
     await context.setOffline(true);
     try { await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1', { timeout: 5000 }); }
     catch (error) { console.log('PWA diagnosis:', page.url(), await page.content().catch(() => 'document unavailable')); throw error; }
+    finally { await new Promise(resolve => gateway.server.listen(port, '127.0.0.1', resolve)); }
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
     await context.setOffline(false); await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');
@@ -158,7 +163,7 @@ test('以前の端末内封印を誤ってサーバー保護とせず、確認�
       state.futureLetter = { text, written_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', sealed_at: '2026-01-01T00:00:00Z', opened_at: null };
       localStorage.setItem(key, JSON.stringify(state));
     }, text);
-    await page.reload(); await page.goto(base + '/#/day/1/5'); await page.waitForSelector('#letter-migrate');
+    await page.reload(); await page.goto(base + '/#/day/1/5'); await page.waitForSelector('.letter-box'); await page.click('.letter-box > summary'); await page.waitForSelector('#letter-migrate');
     assert.match(await page.textContent('.letter-box'), /サーバーで保護された封ではありません/);
     await page.click('#letter-migrate'); await page.click('#confirm-cancel');
     assert.equal((await (await context.request.get(base + '/api/future-letter/status')).json()).sealed, false);
