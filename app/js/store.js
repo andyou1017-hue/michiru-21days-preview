@@ -510,15 +510,16 @@
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
   Store.prototype.mergeRemote = function (remoteEntries) {
-    if (this.recoveryRequired) { this.setStatus('recovery'); return; }
+    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];
       if (r && (!l || (r.updated_at || '') > (l.updated_at || ''))) this.state.entries[d] = r;
       else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = ++this.remoteRevision;
     }
-    if (this.backend.write(this.state)) this.pushRemote();
-    else this.setStatus(this.localStatus(false));
+    if (this.backend.write(this.state)) { this.pushRemote(); return true; }
+    this.setStatus(this.localStatus(false));
+    return false;
   };
 
   window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };

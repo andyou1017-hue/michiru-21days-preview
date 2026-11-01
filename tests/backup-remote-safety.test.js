@@ -95,3 +95,23 @@ test('端末保存失敗時は復元前の状態とリモート接続を復旧�
   assert.equal(store.state.consentedAt, '2026-11-01T11:00:00.000Z');
   store.detach(true);
 });
+
+
+test('サーバー照合の端末保存に失敗したら同期を再開せず、復元済みの端末記録を守る', async () => {
+  const sent = [];
+  const remote = { pushEntry: async day => { sent.push(day); } };
+  const { store, fail } = setup();
+  assert.equal(store.importBackup(backup({ 3: entry(3, '復元したDay3', '2026-10-31T12:00:00.000Z') })), true);
+  fail(true);
+  assert.equal(store.mergeRemote({ 1: entry(1, 'サーバーのDay1', '2026-11-01T12:00:00.000Z') }), false);
+  assert.equal(store.status, 'error');
+  assert.equal(store.remote, null, '保存失敗後に同期を再開しない');
+  assert.deepEqual(sent, [], '端末保存できない内容を送信しない');
+  fail(false);
+  assert.equal(store.mergeRemote({ 1: entry(1, 'サーバーのDay1', '2026-11-01T12:00:00.000Z') }), true);
+  store.remote = remote;
+  store.pushRemote();
+  await tick(); await tick();
+  assert.deepEqual(sent, [3], '照合と保存の成功後だけ復元したDay3を送信');
+  store.detach(true);
+});

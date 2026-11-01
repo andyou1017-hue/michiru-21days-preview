@@ -11,6 +11,7 @@
     this.elapsedBefore = 0;
     this.startedAt = 0;
     this.interval = null;
+    this.deadline = null;
   }
 
   Timer.prototype.elapsed = function () {
@@ -23,6 +24,7 @@
   };
 
   Timer.prototype.tick = function () {
+    if (this.state === 'done') return;
     var e = this.elapsed();
     if (e >= this.total) {
       this.elapsedBefore = this.total;
@@ -41,6 +43,7 @@
     this.startedAt = Date.now();
     this.state = 'running';
     this.interval = setInterval(function () { self.tick(); }, 200);
+    this.deadline = setTimeout(function () { self.tick(); }, Math.max(0, this.total - this.elapsedBefore));
     this.tick();
   };
 
@@ -61,7 +64,9 @@
 
   Timer.prototype.stopInterval = function () {
     if (this.interval) clearInterval(this.interval);
+    if (this.deadline) clearTimeout(this.deadline);
     this.interval = null;
+    this.deadline = null;
   };
 
   Timer.prototype.dispose = function () { this.stopInterval(); };

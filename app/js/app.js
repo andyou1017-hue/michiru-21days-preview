@@ -125,7 +125,7 @@
         // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
         if (api) {
           api.boot().then(function (res) {
-            if (res && !store.detached) { store.mergeRemote(res.entries || {}); store.remote = api.remote(); store.pushRemote(); }
+            if (res && !store.detached && store.mergeRemote(res.entries || {}) !== false) { store.remote = api.remote(); store.pushRemote(); }
           }).catch(function () { store.setStatus('offline'); });
         }
         go('#/');
@@ -1174,8 +1174,14 @@
                   msg.textContent = '端末には復元しました。同期の確認ができません。再ログインして記録を確認してください。';
                   return;
                 }
-                if (res.letterStatus && res.letterStatus.sealed) { serverLetterState = res.letterStatus; store.setServerLetter(res.letterStatus); }
-                store.mergeRemote(res.entries || {});
+                if (res.letterStatus && res.letterStatus.sealed) {
+                  serverLetterState = res.letterStatus;
+                  if (!store.setServerLetter(res.letterStatus)) { msg.textContent = '手紙の保存状態を確認できないため同期を停止しています。'; return; }
+                }
+                if (store.mergeRemote(res.entries || {}) === false) {
+                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                  return;
+                }
                 store.remote = api.remote();
                 store.pushRemote();
                 msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';

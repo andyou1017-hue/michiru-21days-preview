@@ -12,8 +12,8 @@
   function bind(id, seconds, narration, stopOthers) {
     var out = document.getElementById(id + '-remaining'), status = document.getElementById(id + '-status');
     var pause = document.getElementById(id + '-pause'), resume = document.getElementById(id + '-resume');
-    var interval = null, reader = null, paused = false;
-    function clear() { clearInterval(interval); interval = null; }
+    var interval = null, deadline = null, reader = null, paused = false;
+    function clear() { clearInterval(interval); clearTimeout(deadline); interval = null; deadline = null; }
     var timer = new window.MichiruWritingTimer(seconds, function (remaining) {
       out.textContent = String(Math.floor(remaining / 60)).padStart(2, '0') + ':' + String(remaining % 60).padStart(2, '0');
     }, function () { clear(); pause.hidden = true; resume.hidden = true; status.textContent = '時間になりました。書き続けてもかまいません。記録はそのまま残ります。'; });
@@ -21,6 +21,7 @@
       if (timer.running || timer.ended) return;
       timer.start(); paused = false; pause.hidden = false; resume.hidden = true;
       status.textContent = '書く時間です。'; clear(); interval = setInterval(function () { timer.tick(); }, 100);
+      deadline = setTimeout(function () { timer.tick(); }, timer.remaining);
     }
     function reset() { clear(); timer.reset(); paused = false; pause.hidden = true; resume.hidden = true; }
     document.getElementById(id + '-voice').addEventListener('click', function () {

@@ -91,11 +91,12 @@ test('PWAは個人情報をキャッシュせず、オフライン・再起動�
   try {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.reload(); await page.waitForSelector('.day-list');
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     await page.goto(base + '/#/day/2/3'); await page.fill('#ans-0', 'PWA再開用の記録');
     const before = await page.evaluate(() => { const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.')); return { key, value: localStorage.getItem(key) }; });
     const cached = await page.evaluate(async () => { const all = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) all.push(new URL(request.url).pathname); return all; });
     assert.ok(cached.includes('/offline.html')); assert.ok(cached.every(p => p === '/offline.html' || p.startsWith('/icons/')));
-    await context.setOffline(true); await page.reload(); await page.waitForSelector('h1');
+    await context.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('h1');
     assert.match(await page.textContent('h1'), /通信を確認/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), before.key), before.value);
     await context.setOffline(false); await page.goto(base + '/#/day/2/3'); await page.waitForSelector('#ans-0');

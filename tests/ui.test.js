@@ -30,7 +30,8 @@ test.after(async () => {
 });
 
 async function newPage(opts = {}) {
-  const context = await browser.newContext({ viewport: { width: opts.width || 390, height: 800 }, storageState: opts.storageState });
+  // 既存の通信障害試験はpage.routeで通信を制御する。Service Workerの実動作はcompletion.test.jsで別途確認する。
+  const context = await browser.newContext({ viewport: { width: opts.width || 390, height: 800 }, storageState: opts.storageState, serviceWorkers: 'block' });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -90,6 +91,12 @@ test('RECOVERY 読めない記録を上書きせず、元データを退避し�
   assert.equal(await page.locator('#recovery-title').count(), 0);
   assert.equal(await page.isEnabled('#export'), true);
   assert.equal((await stored(page)).futureReplies[7].text, '返信');
+  // バックアップに含まれる同意日時は現在の同意として引き継がない。
+  assert.equal((await stored(page)).consentedAt, null);
+  await page.goto(base + '#/intro');
+  await page.check('#agree');
+  await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/day/1/3');
   assert.equal(await page.inputValue('#ans-0'), '復元する記録');
   assert.deepEqual(errors, []);
@@ -560,6 +567,11 @@ test('バックアップ：ファイルに保存し、全削除のあとに戻�
   await page.setInputFiles('#import-file', file);
   await page.click('#confirm-ok');
   await page.waitForFunction(() => /戻しました/.test(document.getElementById('import-msg').textContent));
+  assert.equal((await stored(page)).consentedAt, null, '復元ファイルの同意を自動継承しない');
+  await page.goto(base + '#/intro');
+  await page.check('#agree');
+  await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/day/7/3');
   assert.strictEqual(await page.inputValue('#ans-0'), 'バックアップする記録\n二行目');
   await page.goto(base + '#/day/7/1');
@@ -1088,6 +1100,11 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   assert.deepStrictEqual(s.discoveries, []);
   assert.strictEqual(s.futureLetter, null);
   assert.strictEqual(s.letter, null);
+  assert.equal(s.consentedAt, null, '古いバックアップの同意も自動継承しない');
+  await page.goto(base + '#/intro');
+  await page.check('#agree');
+  await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/discoveries');
   assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
@@ -1472,7 +1489,7 @@ test('DATA-FAIL 復元：保存に失敗したら戻さず、いまの記録を�
   await page.goto(base + '#/settings');
   await page.setInputFiles('#import-file', { name: 'o.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(other)) });
   await page.click('#confirm-ok');
-  await page.waitForFunction(() => /戻せませんでした/.test(document.getElementById('import-msg').textContent));
+  await page.waitForFunction(() => /復元できませんでした/.test(document.getElementById('import-msg').textContent));
   await page.evaluate(() => { window.__failSave = false; });
   await page.goto(base + '#/day/6/3');
   assert.strictEqual(await page.inputValue('#ans-0'), 'いまの記録', '画面の記録も元のまま');

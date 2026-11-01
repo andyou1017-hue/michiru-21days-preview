@@ -30,7 +30,15 @@ jobs:
       - name: Run regression tests
         env:
           PW_BROWSER: ${{ matrix.browser }}
+          MICHIRU_SCREENSHOTS: artifacts/iphone-like
         run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-like-${{ matrix.browser }}
+          path: artifacts/iphone-like
+          if-no-files-found: ignore
+          retention-days: 3
   container:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
