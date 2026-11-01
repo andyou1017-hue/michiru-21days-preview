@@ -95,6 +95,7 @@ test('RECOVERY 読めない記録を上書きせず、元データを退避し�
   await page.goto(base + '#/intro');
   await page.check('#agree');
   await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/day/1/3');
   assert.equal(await page.inputValue('#ans-0'), '復元する記録');
   assert.deepEqual(errors, []);
@@ -569,6 +570,7 @@ test('バックアップ：ファイルに保存し、全削除のあとに戻�
   await page.goto(base + '#/intro');
   await page.check('#agree');
   await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/day/7/3');
   assert.strictEqual(await page.inputValue('#ans-0'), 'バックアップする記録\n二行目');
   await page.goto(base + '#/day/7/1');
@@ -1101,6 +1103,7 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   await page.goto(base + '#/intro');
   await page.check('#agree');
   await page.click('#start');
+  await page.waitForSelector('.day-list');
   await page.goto(base + '#/discoveries');
   assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
