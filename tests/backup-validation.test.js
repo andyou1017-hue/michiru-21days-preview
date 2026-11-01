@@ -53,3 +53,21 @@ test('既存のバックアップを上書きしない', async t => {
   await assert.rejects(createBackup(source, target), { code: 'EEXIST' });
   assert.equal(fs.readFileSync(target, 'utf8'), 'keep existing backup');
 });
+
+test('公開リポジトリ直下やシンボリックリンク経由にはバックアップしない', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'michiru-backup-private-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const source = path.join(dir, 'source.sqlite');
+  const db = new DatabaseSync(source);
+  db.exec('CREATE TABLE notes (body TEXT)');
+  db.close();
+  const repoRoot = path.resolve(__dirname, '..');
+  const direct = path.join(repoRoot, 'should-never-write-student-data.sqlite');
+  await assert.rejects(createBackup(source, direct), /リポジトリ/);
+  assert.equal(fs.existsSync(direct), false);
+  const link = path.join(dir, 'repo-link');
+  fs.symlinkSync(repoRoot, link, 'dir');
+  const indirect = path.join(link, 'should-never-write-student-data.sqlite');
+  await assert.rejects(createBackup(source, indirect), /リポジトリ/);
+  assert.equal(fs.existsSync(direct), false);
+});
