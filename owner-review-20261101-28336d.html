@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="theme-color" content="#FFF8DF"><title>満ちる眼｜21日間 内容確認（未承認草案）</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;color:#574b3e;background:#fffaf0;font-size:16px}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff4d4 0,#fffaf0 360px);min-height:100vh}
+.wrap{max-width:650px;margin:auto;padding:24px 19px 100px}header{text-align:center;padding:15px 0 23px}.eyebrow{letter-spacing:.22em;color:#a58c4d;font-size:12px}h1{font-size:29px;font-weight:500;letter-spacing:.13em;margin:12px 0 7px}header p{font-size:13px;line-height:1.8;color:#8e816c}
+.notice{border:1px solid #e9d9b1;background:#fffaf0;border-radius:16px;padding:12px 16px;line-height:1.7;font-size:13px;color:#766649;margin-bottom:22px}
+.card{background:rgba(255,255,255,.86);border:1px solid #f0e5cd;border-radius:28px;padding:24px 22px;box-shadow:0 12px 34px rgba(151,123,63,.09)}
+.day-label{text-align:center;color:#b1924b;font-size:13px;letter-spacing:.18em}.flower-area{text-align:center;margin:12px 0 9px}.flower-area svg{max-width:100%;height:auto;filter:drop-shadow(0 7px 10px rgba(163,139,92,.12))}.flower-name{text-align:center;color:#97866b;font-size:13px}
+h2{text-align:center;font-size:24px;font-weight:500;margin:15px 0 28px;line-height:1.5}.guide{background:#fff8e7;border-radius:20px;padding:19px 18px 22px;margin:0 0 26px}.guide h3{color:#a37d36;font-size:14px;font-weight:600;margin:0 0 13px}.guide p,.section p{line-height:2.05;margin:0;white-space:pre-line}
+.section{margin:25px 0}.section h3{font-size:16px;font-weight:600;color:#997d4a;margin:0 0 12px}.question{padding:11px 0;border-bottom:1px solid #f2ebdd;line-height:1.9}.section.action{background:#f8f8ed;border-radius:16px;padding:16px 18px}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:25px 0}.controls button,.voice{border:1px solid #dfc98f;border-radius:99px;background:#fffdf5;color:#775e34;padding:12px 16px;font:inherit;cursor:pointer;min-height:44px}.controls button:disabled{opacity:.35}.voice{display:block;margin:14px auto 0;background:#fff5d8;font-size:14px}.voice-note{font-size:12px;color:#8e816c;text-align:center;line-height:1.8}
+.day-select{width:100%;font:inherit;background:white;border:1px solid #dfc98f;border-radius:14px;padding:13px;color:#574b3e;margin-bottom:20px}
+footer{text-align:center;color:#9c8e7c;font-size:12px;line-height:1.8;margin:28px auto}
+</style></head><body><main class="wrap"><header><div class="eyebrow">MICHIRU EYE</div><h1>満ちる眼</h1><p>在るを生きる21日間<br>陽だまりの中で、今日の自分と出会う。</p></header>
+<div class="notice"><strong>オーナー確認専用・未承認の草案</strong><br>21日分の花・ミニ解説・ワーク本文を確認できます。記録の保存・招待登録・決済はありません。個人情報を入力する欄もありません。</div>
+<label for="days">確認する日を選ぶ</label><select id="days" class="day-select" aria-label="確認する日"></select>
+<article class="card"><div class="day-label" id="day-label"></div><div class="flower-area" id="flower"></div><div class="flower-name" id="flower-name"></div><h2 id="title"></h2>
+<div class="guide"><h3>今日の小さな理由</h3><p id="guide"></p></div>
+<section class="section"><h3>今日のお話</h3><p id="intro"></p></section>
+<section class="section"><h3>今日の問い</h3><div id="prompts"></div></section>
+<section class="section action"><h3>今日の小さな行動</h3><p id="action"></p></section>
+<section class="section"><h3>夜のふりかえり</h3><p id="reflection"></p></section>
+<button type="button" class="voice" id="speak">▶ 今日の文章を音声で聞く</button><p class="voice-note">※ iPhoneなど端末に搭載された日本語音声です。ご本人の声を再現した音声ではありません。</p></article>
+<div class="controls"><button id="prev" type="button">← 前の日</button><span id="position" aria-live="polite"></span><button id="next" type="button">次の日 →</button></div>
+<footer>満ちる眼｜内容・デザイン確認用<br>教材本文とミニ解説の正式承認、および受講生向け公開は未実施です。</footer></main>
+<script>// 21日それぞれの花（デザイン用の仮イラスト。植物画の正式素材ではない）。
+// 花の割り当て：Drive「10時 新デザイン確定方針・21日花割当」（オーナー意向：クリームイエロー＋毎日違う花）。
+// 外部の画像に頼らず、その場で描く（通信が遅くても、画像が読めなくても花の名前は出る）。
+(function () {
+  'use strict';
+
+  var FLOWERS = [
+    null,
+    { name: 'マーガレット', kind: 'ring', petals: 16, len: 34, wid: 7, color: '#FFFFFF', edge: '#E8DFC4', center: '#F2C53D', cr: 11 },
+    { name: 'チューリップ', kind: 'tulip', color: '#F49AA8', edge: '#E07C8D' },
+    { name: 'コスモス', kind: 'ring', petals: 8, len: 34, wid: 13, notch: true, color: '#F6B3CB', edge: '#E592B1', center: '#E9B93A', cr: 8 },
+    { name: 'ミモザ', kind: 'cluster', color: '#F5CF3A', edge: '#E3B51E', count: 15, r: 6.5 },
+    { name: 'ガーベラ', kind: 'ring', petals: 22, len: 33, wid: 6, color: '#F7A35C', edge: '#E5853A', layer2: '#FBC48C', center: '#7A5A2A', cr: 10 },
+    { name: 'ひまわり', kind: 'ring', petals: 20, len: 30, wid: 8, point: true, color: '#F7C928', edge: '#E3AE10', center: '#7A5226', cr: 15 },
+    { name: 'すずらん', kind: 'bells', color: '#FFFFFF', edge: '#D9D3BD' },
+    { name: 'デイジー', kind: 'ring', petals: 14, len: 28, wid: 7, color: '#FFFFFF', tip: '#F3B8C8', edge: '#E8DFC4', center: '#F2C53D', cr: 10 },
+    { name: 'ラナンキュラス', kind: 'layers', color: '#F9BFA0', edge: '#EC9F7C', rings: 5 },
+    { name: 'フリージア', kind: 'freesia', color: '#F6D04D', edge: '#E2B52A' },
+    { name: 'カモミール', kind: 'ring', petals: 13, len: 22, wid: 7, color: '#FFFFFF', edge: '#E8DFC4', center: '#F0C030', cr: 13 },
+    { name: 'スイートピー', kind: 'sweetpea', color: '#C9B3E6', edge: '#AB92D3' },
+    { name: 'スミレ', kind: 'violet', color: '#8E78C8', edge: '#7360AE', center: '#F4D35E' },
+    { name: 'ポピー', kind: 'ring', petals: 4, len: 30, wid: 26, color: '#F28A5E', edge: '#DE6E44', center: '#4A3A2A', cr: 8 },
+    { name: 'ジャスミン', kind: 'ring', petals: 5, len: 30, wid: 12, point: true, color: '#FFFFFF', edge: '#E3DCC2', center: '#F3E2A0', cr: 5 },
+    { name: 'アネモネ', kind: 'ring', petals: 6, len: 30, wid: 20, color: '#D9748E', edge: '#C25A76', center: '#3E3550', cr: 10 },
+    { name: 'ネモフィラ', kind: 'ring', petals: 5, len: 28, wid: 22, color: '#9DCBF0', edge: '#79B0DE', center: '#FFFFFF', cr: 9 },
+    { name: 'ダリア', kind: 'dahlia', color: '#E07AA6', edge: '#C85E8C' },
+    { name: 'カスミソウ', kind: 'cluster', color: '#FFFFFF', edge: '#E3DCC2', count: 22, r: 4.5 },
+    { name: 'キンモクセイ', kind: 'cluster', color: '#F4A23C', edge: '#DE8A24', count: 16, r: 5.5, star: true },
+    { name: '黄金色のバラ', kind: 'rose', color: '#F2C14E', edge: '#D9A22C' }
+  ];
+
+  var LEAF = '#8FAE84';
+  var STEM = '#7C9A72';
+
+  function f(n) { return Math.round(n * 10) / 10; }
+  function rot(x, y, a) { var r = a * Math.PI / 180; return [f(x * Math.cos(r) - y * Math.sin(r)), f(x * Math.sin(r) + y * Math.cos(r))]; }
+
+  // 中心(0,0)から上に伸びる花びら1枚の形
+  function petalPath(len, wid, opt) {
+    if (opt.point) return 'M0 0 C' + f(wid) + ' ' + f(-len * 0.35) + ' ' + f(wid * 0.6) + ' ' + f(-len * 0.8) + ' 0 ' + f(-len) + ' C' + f(-wid * 0.6) + ' ' + f(-len * 0.8) + ' ' + f(-wid) + ' ' + f(-len * 0.35) + ' 0 0Z';
+    if (opt.notch) return 'M0 0 C' + f(wid) + ' ' + f(-len * 0.3) + ' ' + f(wid * 1.1) + ' ' + f(-len * 0.95) + ' ' + f(wid * 0.45) + ' ' + f(-len) +
+      ' L0 ' + f(-len * 0.9) + ' L' + f(-wid * 0.45) + ' ' + f(-len) + ' C' + f(-wid * 1.1) + ' ' + f(-len * 0.95) + ' ' + f(-wid) + ' ' + f(-len * 0.3) + ' 0 0Z';
+    return 'M0 0 C' + f(wid) + ' ' + f(-len * 0.25) + ' ' + f(wid) + ' ' + f(-len) + ' 0 ' + f(-len) + ' C' + f(-wid) + ' ' + f(-len) + ' ' + f(-wid) + ' ' + f(-len * 0.25) + ' 0 0Z';
+  }
+
+  function ring(fl) {
+    var out = '';
+    var layers = fl.layer2 ? [[fl.layer2, 0.72, 360 / fl.petals / 2]] : [];
+    layers.unshift([fl.color, 1, 0]);
+    for (var L = 0; L < layers.length; L++) {
+      var col = layers[L][0], scale = layers[L][1], off = layers[L][2];
+      for (var i = 0; i < fl.petals; i++) {
+        var a = off + i * 360 / fl.petals;
+        out += '<path d="' + petalPath(fl.len * scale, fl.wid * scale, fl) + '" transform="rotate(' + f(a) + ')" fill="' + col + '" stroke="' + fl.edge + '" stroke-width="1"/>';
+        if (fl.tip && L === 0) {
+          var p = rot(0, -fl.len * 0.88, a);
+          out += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + f(fl.wid * 0.45) + '" fill="' + fl.tip + '"/>';
+        }
+      }
+    }
+    out += '<circle r="' + fl.cr + '" fill="' + fl.center + '"/>';
+    for (var d = 0; d < 7; d++) { var q = rot(0, fl.cr * 0.5, d * 51); out += '<circle cx="' + q[0] + '" cy="' + q[1] + '" r="1.3" fill="rgba(0,0,0,.18)"/>'; }
+    return out;
+  }
+
+  function cluster(fl) {
+    var out = '<path d="M0 46 C-2 20 2 6 0 -6" stroke="' + STEM + '" stroke-width="3" fill="none"/>';
+    // 黄金角で丸く並べる（どの花も同じ並びになり、毎回同じ絵になる）
+    for (var i = 0; i < fl.count; i++) {
+      var r = 8 + 26 * Math.sqrt((i + 0.5) / fl.count), a = i * 137.5;
+      var p = rot(0, -r, a);
+      var x = p[0], y = f(p[1] - 6);
+      if (fl.star) {
+        for (var k = 0; k < 4; k++) out += '<ellipse cx="' + x + '" cy="' + f(y - fl.r * 0.6) + '" rx="' + f(fl.r * 0.5) + '" ry="' + f(fl.r * 0.75) + '" transform="rotate(' + (k * 90 + i * 10) + ' ' + x + ' ' + y + ')" fill="' + fl.color + '"/>';
+      } else {
+        out += '<circle cx="' + x + '" cy="' + y + '" r="' + fl.r + '" fill="' + fl.color + '" stroke="' + fl.edge + '" stroke-width="1"/>';
+      }
+    }
+    return out;
+  }
+
+  function stem(h) {
+    return '<path d="M0 ' + h + ' C-3 28 3 18 0 6" stroke="' + STEM + '" stroke-width="3.2" fill="none"/>' +
+      '<path d="M0 34 C-16 26 -20 14 -22 8 C-10 10 -2 20 0 30Z" fill="' + LEAF + '"/>';
+  }
+
+  function draw(fl) {
+    switch (fl.kind) {
+      case 'ring': return ring(fl);
+      case 'cluster': return cluster(fl);
+      case 'tulip':
+        return stem(48) + '<path d="M-17 -2 C-20 -24 -10 -36 0 -30 C10 -36 20 -24 17 -2 C12 10 -12 10 -17 -2Z" fill="' + fl.color + '" stroke="' + fl.edge + '"/>' +
+          '<path d="M0 -30 C-6 -18 -6 -4 0 6 C6 -4 6 -18 0 -30Z" fill="' + fl.edge + '" opacity=".45"/>';
+      case 'bells':
+        var b = '<path d="M-14 44 C-12 14 0 -12 18 -24" stroke="' + STEM + '" stroke-width="2.6" fill="none"/>' +
+          '<path d="M-14 44 C-30 20 -26 -10 -18 -24 C-8 0 -8 24 -14 44Z" fill="' + LEAF + '"/>';
+        var pts = [[-8, 12], [0, -2], [9, -13], [17, -22]];
+        for (var i = 0; i < pts.length; i++) {
+          var x = pts[i][0], y = pts[i][1];
+          b += '<path d="M' + (x - 7) + ' ' + (y + 12) + ' C' + (x - 8) + ' ' + y + ' ' + (x + 8) + ' ' + y + ' ' + (x + 7) + ' ' + (y + 12) + ' C' + (x + 4) + ' ' + (y + 15) + ' ' + (x - 4) + ' ' + (y + 15) + ' ' + (x - 7) + ' ' + (y + 12) + 'Z" fill="' + fl.color + '" stroke="' + fl.edge + '"/>';
+        }
+        return b;
+      case 'layers':
+        // 丸い花びらが幾重にも重なる
+        var o = '';
+        for (var r = 0; r < fl.rings; r++) {
+          var cnt = 11 - r * 1.5 | 0, ln = 36 - r * 6.5, wd = 11 - r * 1.2;
+          for (var q = 0; q < cnt; q++) o += '<path d="' + petalPath(ln, wd, {}) + '" transform="rotate(' + f(q * 360 / cnt + r * 17) + ')" fill="' + (r % 2 ? '#FBD3BE' : fl.color) + '" stroke="' + fl.edge + '" stroke-width=".9"/>';
+        }
+        return o + '<circle r="4" fill="' + fl.edge + '" opacity=".7"/>';
+      case 'freesia':
+        var s = '<path d="M-26 40 C-10 22 8 6 30 -12" stroke="' + STEM + '" stroke-width="3" fill="none"/>';
+        var fp = [[-14, 26, 1], [0, 13, 0.95], [14, 0, 0.85], [26, -10, 0.65]];
+        for (var j = 0; j < fp.length; j++) {
+          var sc = fp[j][2];
+          s += '<g transform="translate(' + fp[j][0] + ' ' + fp[j][1] + ') scale(' + sc + ') rotate(-30)">' +
+            '<path d="M0 0 C-14 -6 -16 -26 0 -30 C16 -26 14 -6 0 0Z" fill="' + fl.color + '" stroke="' + fl.edge + '"/>' +
+            '<path d="M0 -4 C-6 -10 -6 -22 0 -26" stroke="' + fl.edge + '" fill="none"/></g>';
+        }
+        return s;
+      case 'sweetpea':
+        return stem(48) + '<path d="M0 0 C-30 -4 -34 -34 -10 -36 C0 -36 2 -20 0 0Z" fill="' + fl.color + '" stroke="' + fl.edge + '"/>' +
+          '<path d="M0 0 C30 -4 34 -34 10 -36 C0 -36 -2 -20 0 0Z" fill="#D9C8F0" stroke="' + fl.edge + '"/>' +
+          '<path d="M-8 4 C-4 -14 4 -14 8 4 C4 10 -4 10 -8 4Z" fill="' + fl.edge + '" opacity=".8"/>';
+      case 'violet':
+        var v = stem(48);
+        var vp = [[-30, 18, 22], [30, 18, 22], [-70, 22, 18], [70, 22, 18], [180, 26, 20]];
+        for (var k = 0; k < vp.length; k++) v += '<path d="' + petalPath(vp[k][1], vp[k][2] * 0.6, {}) + '" transform="rotate(' + vp[k][0] + ')" fill="' + (k === 4 ? '#A895DA' : fl.color) + '" stroke="' + fl.edge + '"/>';
+        return v + '<circle r="4.5" fill="' + fl.center + '"/>';
+      case 'dahlia':
+        var dd = '';
+        var lay = [[16, 36, 8, fl.color], [16, 27, 7, '#EB98BC'], [12, 18, 6, '#F3B6D0'], [8, 10, 4.5, '#F8CFE0']];
+        for (var m = 0; m < lay.length; m++) {
+          for (var n = 0; n < lay[m][0]; n++) dd += '<path d="' + petalPath(lay[m][1], lay[m][2], { point: true }) + '" transform="rotate(' + f(n * 360 / lay[m][0] + m * 11) + ')" fill="' + lay[m][3] + '" stroke="' + fl.edge + '" stroke-width=".8"/>';
+        }
+        return dd;
+      case 'rose':
+        var ro = '<path d="M0 50 C-3 32 3 24 0 16" stroke="' + STEM + '" stroke-width="3.2" fill="none"/>' +
+          '<path d="M0 38 C14 32 22 22 24 14 C12 16 4 24 0 34Z" fill="' + LEAF + '"/>';
+        var rl = [[5, 32, 19, fl.color, 0], [5, 24, 15, '#F7D27A', 36], [4, 16, 11, '#F9DD94', 10]];
+        for (var t = 0; t < rl.length; t++) {
+          for (var u = 0; u < rl[t][0]; u++) ro += '<path d="' + petalPath(rl[t][1], rl[t][2], {}) + '" transform="rotate(' + f(u * 360 / rl[t][0] + rl[t][4]) + ')" fill="' + rl[t][3] + '" stroke="' + fl.edge + '" stroke-width="1"/>';
+        }
+        return ro + '<path d="M-6 2 C-8 -6 0 -10 5 -6 C9 -2 6 4 1 5" fill="none" stroke="' + fl.edge + '" stroke-width="2"/>' +
+          '<path d="M-2 1 C-2 -3 2 -4 3 -1" fill="none" stroke="' + fl.edge + '" stroke-width="1.6"/>';
+    }
+    return '';
+  }
+
+  // 読み上げでは、花の名前を文字で伝える（絵そのものは読み上げない）
+  function flowerSvg(day, size) {
+    var fl = FLOWERS[day];
+    if (!fl) return '';
+    size = size || 96;
+    return '<svg class="flower" viewBox="-50 -50 100 100" width="' + size + '" height="' + size + '" aria-hidden="true" focusable="false">' +
+      '<circle r="48" fill="#FFF3C8" opacity=".7"/>' + draw(fl) + '</svg>';
+  }
+
+  function flowerName(day) { return FLOWERS[day] ? FLOWERS[day].name : ''; }
+
+  window.MichiruFlowers = { svg: flowerSvg, name: flowerName, count: FLOWERS.length - 1 };
+})();
+</script>
+<script>const REVIEW={"days":[{"day":1,"work_id":"MOOD-01","title":"今の心を知る","intro":"今日の気分を、良い・悪いと決めずに眺めてみましょう。ここから始める自分を、そのまま受け止めます。","prompts":["今の気分を一言で表すと？","その気分の中でも、すでにできていることは？"],"action":"今日の自分に「ここから始めよう」と一度声をかける。","reflection":"朝と夜で、心の向きにどんな違いがありましたか。"},{"day":2,"work_id":"ARU-01","title":"すでに在るもの","intro":"「ないもの」を数える前に、目の前にあるものに気づいてみます。大きなものを探さなくて大丈夫。","prompts":["今あるものを三つ挙げると？","そのうち一つに支えられていることは？"],"action":"身近な一つのものを丁寧に扱う。","reflection":"今日、当たり前ではなかったことは何ですか。"},{"day":3,"work_id":"BIP-SELF-01","title":"自分の美点","intro":"美点は誰かに評価してもらうものではありません。自分が見つけた、心に映る素晴らしさです。","prompts":["自分のよいところを三つ挙げると？","昨日より少しでも成長したところは？"],"action":"自分をねぎらう小さな行動を一つする。","reflection":"自分を見つめる言葉に、どんな温度がありましたか。"},{"day":4,"work_id":"BIP-THING-01","title":"ものの美点","intro":"毎日使う道具や場所にも、気づかなかったよさがあります。美点発見を人以外にも広げてみます。","prompts":["今日目に入ったものは？","どんな働きで自分を支えていますか。"],"action":"一つの道具や場所を丁寧に整える。","reflection":"見慣れた景色は少し変わりましたか。"},{"day":5,"work_id":"BIP-OTHER-01","title":"身近な人の美点","intro":"美点発見は、お世辞でも褒める技術でもありません。相手がいなくても、一人でできます。","prompts":["一人思い浮かべると？","見た目・行動・心遣いのうち、心から美しいと思う点は？"],"action":"ノートに三つ書く。伝える必要はありません。","reflection":"発見した美点は、自分の心に何を残しましたか。"},{"day":6,"work_id":"THANKS-LEARN-01","title":"教えられたこと","intro":"人とのやりとりを振り返ると、自分が受け取っていたものに気づくことがあります。","prompts":["最近、誰から何を教わりましたか？","その出会いのどんなところがありがたいですか。"],"action":"「教えられたこと」と「感謝していること」をそれぞれ一つ記録する。","reflection":"今日、受け取っていたものは何ですか。"},{"day":7,"work_id":"REVIEW-W1","title":"最初の七日を振り返る","intro":"正解探しはしません。昨日までの小さな発見を、今日の自分が受け取ります。","prompts":["七日間で心に残った美点は？","これからも続けたいことは？"],"action":"一つのワークを選び、もう一度行う。","reflection":"初日と今を比べて、どんな違いがありますか。"},{"day":8,"work_id":"WORD-01","title":"口癖に気づく","intro":"いつもの言葉には、心が向いている方向が表れます。責めずに気づくことから始めます。","prompts":["よく口にする言葉は？","その言葉の奥にはどんな願いがありますか。"],"action":"今日一度、願いを大切にする言葉に言い換えてみる。","reflection":"言葉を変えたとき、心に何が起きましたか。"},{"day":9,"work_id":"WORD-02","title":"言葉に温もりを","intro":"同じ内容でも、言葉に込める心によって届き方が変わります。自分にも人にも温かい言葉を。","prompts":["今日自分にかけたい言葉は？","身近な人に伝えたい感謝の一言は？"],"action":"心から言える一言を声に出す。相手に伝えるかは自分で選ぶ。","reflection":"その一言を、いちばん近くで聞いた自分はどう感じましたか。"},{"day":10,"work_id":"KOREDE-01","title":"これで良かった①","intro":"思い通りにならなかった小さな出来事を、一つだけ別の角度から眺めてみます。無理に良かったと思う必要はありません。","prompts":["最近の小さな予定変更は？","そこから得たことや守れたことはありますか。"],"action":"「それでも気づけたこと」を一つ書く。","reflection":"見方が変わらなくても、書いてみてどう感じましたか。"},{"day":11,"work_id":"KOREDE-02","title":"これで良かった②","intro":"「これで良かった」という言葉を先に置き、理由を探す練習です。つらい出来事を無理に扱う必要はありません。","prompts":["今日の小さな失敗や遠回りは？","そこにある学びを一つ挙げるなら？"],"action":"言える範囲で「これで良かった。なぜなら…」を完成させる。","reflection":"言葉の前後で、心の向きはどう変わりましたか。"},{"day":12,"work_id":"AI-01","title":"愛の小さな発見","intro":"「これって愛なんですね」と感じる場面は、特別な出来事だけではありません。身近な心遣いを探します。","prompts":["今日見た小さな親切は？","自分の中にあった思いやりは？"],"action":"誰かの心遣いを一つ、静かに受け取る。","reflection":"今日、愛を感じた瞬間はありましたか。なければそれもそのままで。"},{"day":13,"work_id":"THANKS-WORD-01","title":"感謝を言葉にする","intro":"感謝は、相手を変えるための言葉ではありません。自分が本当に感じたことを、短く表します。","prompts":["誰に何を感謝していますか？","それは具体的にどんな場面ですか。"],"action":"伝えられる相手なら短い感謝を伝える。難しければノートだけでよい。","reflection":"感謝を言葉にしたとき、どんな気持ちでしたか。"},{"day":14,"work_id":"ACTION-01","title":"言葉から行動へ","intro":"気づきを日常で使うと、言葉に命が宿ります。大きな決意より、今日できる一つを。","prompts":["今日の美点発見から何をしたいですか？","5分以内にできることは？"],"action":"一つ実行する。できなければ明日に持ち越してもよい。","reflection":"実際に行動したこと、できなかったことから何を学びましたか。"},{"day":15,"work_id":"ARIKATA-01","title":"朝の在り方を選ぶ","intro":"顔を洗う、挨拶をする、食事をする。いつもの動作にも、今日の在り方を表せます。","prompts":["今日どんな自分として過ごしたいですか？","その自分なら最初の行動は？"],"action":"朝のいつもの動作を一つ、選んだ在り方で行う。","reflection":"一つの動作を丁寧にしたことで、何が変わりましたか。"},{"day":16,"work_id":"KOUKEN-01","title":"目の前の私に何ができる","intro":"自分と目の前の人やものを切り離さず、今できる小さな貢献を見つけます。無理をして尽くすことではありません。","prompts":["目の前にいる人・もの・場所は？","自分が無理なくできることは？"],"action":"相手の望みや境界を尊重して、一つ小さな貢献をする。","reflection":"与えたつもりで、受け取ったものは何ですか。"},{"day":17,"work_id":"JOY-01","title":"人の喜びを自分の喜びに","intro":"相手のよいところを見つけ、相手の喜びを喜べる瞬間を大切にします。比較や競争をやめる練習です。","prompts":["今日、誰のどんな喜びに触れましたか？","その人の美点は？"],"action":"心の中で「よかったね」と伝える。必要なら言葉にする。","reflection":"相手の喜びを見たとき、自分の心には何が起こりましたか。"},{"day":18,"work_id":"LETTER-SELF-01","title":"自分への感謝状","intro":"今日まで生きてきた自分に、短い感謝状を書きます。成果や肩書きを並べる必要はありません。","prompts":["自分が続けてきたことは？","今日までの自分に何を伝えたいですか。"],"action":"「今日までの私へ」で始まる三行の手紙を書く。","reflection":"自分の言葉を読み返して、どんな気持ちになりましたか。"},{"day":19,"work_id":"LETTER-OTHER-01","title":"大切な人への手紙","intro":"人生の終わりを想像して感謝を伝えるワークの入門版です。つらい場合は、今日会えた人を思い浮かべるだけでもかまいません。","prompts":["人生の節目に一番「ありがとう」を伝えたい人は？","その人から何を受け取りましたか。"],"action":"その人に宛てた手紙を五行書く。送らなくてよい。","reflection":"手紙を書いた後、今の暮らしで大切にしたいことは何ですか。"},{"day":20,"work_id":"BIP-OTHER-01","title":"同じワーク、違う私","intro":"五日目と同じ「人の美点発見」をもう一度行います。比べるのは点数ではなく、自分の見つめ方です。","prompts":["同じ人の美点を三つ挙げると？","五日目には見えなかったものは？"],"action":"五日目の記録と並べて眺める。","reflection":"見つけたものと、見つける自分のどちらに変化がありましたか。","compare_with_day":5},{"day":21,"work_id":"REVIEW-ALL","title":"ここからも在る","intro":"二十一日間は終点ではありません。今日の自分をそのまま認め、続けたい一つを選びます。","prompts":["一番心に残った発見は？","これから大切にする言葉は？","明日できる小さな行動は？"],"action":"自分への一行の約束を書く。続けるかどうかは自分で決めてよい。","reflection":"二十一日間を終えた今、自分にどんな言葉をかけたいですか。"}],"guides":{"1":"心を明るくしようとする前に、いま何を感じているのかを知ることから始めます。元気な日も、そうでない日も、ここにいる自分を置き去りにしないための時間です。","2":"私たちの心は、危険や足りないものに気づきやすい性質を持っています（心理学では「ネガティビティ・バイアス」と呼ばれます）。それは自分を守る働きでもあるので、責める必要はありません。今日は同じ景色の中で、すでにあなたを支えているものに、意識して目を向けてみます。","3":"自分を振り返ると、できなかったことばかり浮かぶ日もあります。美点発見は、無理にほめることではなく、すでにそこに在る素晴らしさに気づくことです。今日は比べることから少し離れて、自分の中の美しさを言葉にしてみます。","4":"毎日使うものは、あまりに身近で、その働きを忘れがちです。ひとつの道具や場所に目を向けると、自分が何に支えられて暮らしているかに気づくことがあります。","5":"相手をほめる言葉を探すのではなく、あなた自身が美しいと感じたところを見つめます。伝えなくても、相手が変わらなくても、その発見はあなたの心の中に残ります。","6":"人から受け取ったものは、言葉で教わったことだけではないかもしれません。何気ないやりとりを振り返り、今の自分につながっているものを見つけてみます。","7":"七日間で大きく変わっていなくても、ここまで目を向けてきた時間があります。何ができたかより、どんなことに気づいたかを、今日の自分の言葉で確かめます。","8":"何度も口にする言葉には、気づかないうちに、自分のまなざしが表れていることがあります。まずは直そうとせず、その言葉の奥にある思いや願いに耳を傾けてみましょう。","9":"同じ「ありがとう」でも、心から出た言葉には、その人らしい温もりがあります。立派な表現を探すより、今の自分が本当に伝えたい一言を大切にします。","10":"思いどおりにならない出来事は、すぐに「良かった」とは思えないものです。今日は小さな出来事を一つ選び、ほかの見方もあるだろうかと、そっと眺めてみます。","11":"昨日は、出来事を別の角度から眺めました。今日は「これで良かった」と言えそうな小さな場面で、どんな理由が見えてくるかを試します。言葉が心に合わなければ、無理に完成させなくて大丈夫です。","12":"愛は、大きな出来事の中だけにあるのでしょうか。いつもの気遣いや、自分の中に生まれた小さな思いやりにも、目を向けてみます。見つからない日も、そのままでかまいません。","13":"感謝を言わなければならない、という課題ではありません。心に残っている出来事を思い出し、そこに本当に感じるものがあれば、あなたの言葉にしてみましょう。","14":"気づいたことを、暮らしの中で一つ形にしてみる日です。大きな決意より、目の前のものを丁寧に扱うような小さな行動に、今日の心が表れることがあります。","15":"顔を洗う、扉を開ける、誰かに挨拶する。いつもの動作も、どんな心で行うかは選べます。今日は一つの動作に、今大切にしたい在り方を込めてみます。","16":"目の前の人やものを、自分と切り離されたものとして見ないとしたら、何ができるでしょう。尽くしすぎることではなく、相手の望みも自分の大切さも守りながら、つながりを感じる小さな実践です。","17":"誰かの喜びを見たとき、比べる気持ちが出ることもあります。それも否定せずに、同時に、その人の喜びを喜べる心が自分の中にもあるかを、静かに確かめます。","18":"自分に感謝するのは、成果を並べてほめることだけではありません。今日まで歩いてきた自分に、どんな言葉を贈りたいか。今ここにいる存在を、大切に見つめます。","19":"今、ありがとうを伝えたい存在が浮かぶなら、その存在と過ごした時間を、静かに思い出してみます。人でも、動物でも、過去の自分でもかまいません。浮かばない日は、書かずに過ごしてもかまいません。","20":"五日目に行った美点発見を、今のまなざしでもう一度行います。変わったところがあっても、なくても大丈夫です。見つけた美しさと、それを見つめる自分の両方を味わいます。","21":"二十一日間の価値は、毎日うまくできたかでは決まりません。自分や人や日常の中に、何を見つけてきたでしょう。今日のまなざしを、明日の小さな行動へつないでみます。"}};
+let current=1;
+const $=id=>document.getElementById(id);
+for(const d of REVIEW.days){const o=document.createElement('option');o.value=d.day;o.textContent='Day '+d.day+'｜'+d.title;$('days').append(o)}
+function show(n){if(n<1||n>21)return;stop();current=n;const d=REVIEW.days[n-1];$('days').value=n;$('day-label').textContent='DAY '+n+' / 21';$('flower').innerHTML=window.MichiruFlowers.svg(n,160);$('flower-name').textContent='今日の花・'+window.MichiruFlowers.name(n);$('title').textContent=d.title;$('guide').textContent=REVIEW.guides[n];$('intro').textContent=d.intro;$('action').textContent=d.action;$('reflection').textContent=d.reflection;$('prompts').replaceChildren();for(const q of d.prompts){const p=document.createElement('p');p.className='question';p.textContent=q;$('prompts').append(p)}$('prev').disabled=n===1;$('next').disabled=n===21;$('position').textContent=n+' / 21';history.replaceState(null,'','#day-'+n);window.scrollTo({top:0,behavior:'instant'})}
+function stop(){if('speechSynthesis' in window)window.speechSynthesis.cancel();$('speak').textContent='▶ 今日の文章を音声で聞く'}
+$('days').addEventListener('change',e=>show(Number(e.target.value)));$('prev').addEventListener('click',()=>show(current-1));$('next').addEventListener('click',()=>show(current+1));
+$('speak').addEventListener('click',()=>{if(!('speechSynthesis' in window)){alert('この端末は読み上げに対応していません');return}if(window.speechSynthesis.speaking){stop();return}const d=REVIEW.days[current];const u=new SpeechSynthesisUtterance(['Day '+current,d.title,'今日の小さな理由',REVIEW.guides[current],'今日のお話',d.intro,'今日の問い',...d.prompts,'今日の小さな行動',d.action].join('。'));u.lang='ja-JP';u.rate=.86;u.onend=stop;u.onerror=stop;window.speechSynthesis.speak(u);$('speak').textContent='■ 読み上げを止める'});
+const initial=Number((location.hash.match(/^#day-(\d+)$/)||[])[1])||1;show(Math.min(21,Math.max(1,initial)));
+</script></body></html>
