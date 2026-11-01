@@ -37,7 +37,7 @@ test('サーバーエラーを保存成功として扱わない', async () => {
 test('招待制のサーバー画面はローカル専用と誤表示しない', () => {
   const gateway = fs.readFileSync(path.join(__dirname, '../runtime/gateway.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../app/js/app.js'), 'utf8');
-  assert.match(gateway, /MICHIRU_CONFIG=\\{server:true,localOnly:false\\}/);
+  assert.ok(gateway.includes('MICHIRU_CONFIG={server:true,localOnly:false}'));
   assert.match(app, /サーバーにも保存されます/);
   assert.match(app, /この端末に保存されます/);
 });
