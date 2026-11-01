@@ -27,7 +27,7 @@ async function fixture(t, options = {}) {
 test('未招待者は教材HTML・JS・JSON・bootstrapの直URLからも入れない', async t => {
   const { base } = await fixture(t);
   assert.match(await (await fetch(base)).text(), /招待を受け取った方だけ/);
-  for (const route of ['/js/content.js', '/js/app.js', '/js/future-guidance.js', '/content/days.yellow.json', '/api/bootstrap', '/runtime/gateway.js', '/private.sqlite']) {
+  for (const route of ['/js/content.js', '/js/app.js', '/js/life-meditation.js', '/js/future-guidance.js', '/content/days.yellow.json', '/api/bootstrap', '/runtime/gateway.js', '/private.sqlite']) {
     assert.equal((await fetch(base + route)).status, 401, route);
   }
 });
