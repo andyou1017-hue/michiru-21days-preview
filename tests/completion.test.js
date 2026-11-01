@@ -156,13 +156,14 @@ test('以前の端末内封印を誤ってサーバー保護とせず、確認�
   const { context, page, errors } = await student('legacy-migration@example.invalid');
   const text = '以前の封の本文を守る';
   try {
-    await page.evaluate(text => {
+    // Seed before app boot; pagehide correctly flushes the old in-memory state on reload.
+    await page.addInitScript(text => {
       const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.'));
       const state = JSON.parse(localStorage.getItem(key));
       state.futureLetter = { text, written_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', sealed_at: '2026-01-01T00:00:00Z', opened_at: null };
       localStorage.setItem(key, JSON.stringify(state));
     }, text);
-    await page.reload(); await page.goto(base + '/#/day/1/5'); await page.waitForSelector('.letter-box'); await page.click('.letter-box > summary'); await page.waitForSelector('#letter-migrate');
+    await page.reload(); await page.goto(base + '/#/day/1/5'); await page.waitForSelector('#letter-migrate');
     assert.match(await page.textContent('.letter-box'), /サーバーで保護された封ではありません/);
     await page.click('#letter-migrate'); await page.click('#confirm-cancel');
     assert.equal((await (await context.request.get(base + '/api/future-letter/status')).json()).sealed, false);
