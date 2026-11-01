@@ -49,8 +49,11 @@ test('稼働中のバックアップから記録・封印手紙・利用者分�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'michiru-backup-recovery-'));
   const source = path.join(dir, 'live.sqlite');
   const destination = path.join(dir, 'recovered.sqlite');
+  // Use the same controlled server clock before and after restore, so the seven-day
+  // boundary is checked exactly rather than relying on wall-clock timing.
+  let clock = Date.parse('2026-11-01T10:00:00.000Z');
   const original = createGateway({
-    databasePath: source, origin: 'http://127.0.0.1:0', development: true
+    databasePath: source, origin: 'http://127.0.0.1:0', development: true, now: () => clock
   });
   let restored;
   t.after(async () => {
@@ -77,7 +80,7 @@ test('稼働中のバックアップから記録・封印手紙・利用者分�
   } finally { snapshot.close(); }
 
   restored = createGateway({
-    databasePath: destination, origin: 'http://127.0.0.1:0', development: true
+    databasePath: destination, origin: 'http://127.0.0.1:0', development: true, now: () => clock
   });
   const restoredBase = await listen(restored);
   const first = await getJson(restoredBase, '/api/bootstrap', a);
@@ -96,4 +99,24 @@ test('稼働中のバックアップから記録・封印手紙・利用者分�
   assert.equal((await post(restoredBase, '/api/future-letter/open', {}, a)).status, 423);
   assert.equal((await getJson(restoredBase, '/api/future-letter/status', b)).sealed, false);
   assert.equal((await fetch(restoredBase + '/recovered.sqlite', { headers: { Cookie: a } })).status, 404);
+
+  // A restored database must preserve the original seal time. Expired sessions
+  // require re-authentication, but neither restore nor login may reset the lock.
+  clock += 7 * 86400000 - 1;
+  assert.equal((await post(restoredBase, '/api/future-letter/open', {}, a)).status, 401);
+  const login = await post(restoredBase, '/api/login', {
+    email: 'first@example.invalid', password: 'test-passphrase-12345'
+  });
+  assert.equal(login.status, 200);
+  const freshCookie = login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await post(restoredBase, '/api/future-letter/open', {}, freshCookie)).status, 423);
+  assert.equal((await post(restoredBase, '/api/future-letter/seal', { text: '書き直し' }, freshCookie)).status, 409);
+  clock += 1;
+  const opened = await post(restoredBase, '/api/future-letter/open', {}, freshCookie);
+  assert.equal(opened.status, 200);
+  assert.equal((await opened.json()).text, letter);
+  const openedStatus = await getJson(restoredBase, '/api/future-letter/status', freshCookie);
+  assert.equal(openedStatus.opened, true);
+  assert.equal('text' in openedStatus, false, '開封後もstatusには本文を含めない');
+  assert.equal((await post(restoredBase, '/api/future-letter/seal', { text: '再封印' }, freshCookie)).status, 409);
 });
