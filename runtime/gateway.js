@@ -239,7 +239,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(html);
       }
       if (pathname === '/js/api.js') return serve(res, path.join(__dirname, 'api.js'), 'text/javascript; charset=utf-8');
-      const allowed = ['/css/app.css', '/js/app.js', '/js/store.js', '/js/timer.js', '/js/future-guidance.js', '/js/clock.js', '/js/flowers.js'];
+      const allowed = ['/css/app.css', '/js/app.js', '/js/life-meditation.js', '/js/store.js', '/js/timer.js', '/js/future-guidance.js', '/js/clock.js', '/js/flowers.js'];
       if (allowed.includes(pathname)) return serve(res, path.join(appRoot, pathname), pathname.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
       return send(res, 404, { error: '見つかりません。' });
     } catch (error) { if (!res.headersSent) send(res, error.status || 500, { error: '処理できませんでした。時間をおいて再度お試しください。' }); else res.end(); }
