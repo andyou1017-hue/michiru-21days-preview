@@ -1146,7 +1146,8 @@
   }
 
   function start(content, opts) {
-    C = content;
+    // 招待制では教材をAPIから受け取るため、起動後に「命の瞑想」を適用する。
+    C = window.MichiruLifeMeditation ? window.MichiruLifeMeditation.apply(content) : content;
     store = new window.MichiruStore.Store(opts);
     store.onStatus(showStatus);
     applyFont();
