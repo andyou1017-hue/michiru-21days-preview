@@ -36,6 +36,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS entries (account TEXT NOT NULL, day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 21), payload TEXT NOT NULL, PRIMARY KEY(account, day));
+    CREATE TABLE IF NOT EXISTS entry_generations (account TEXT PRIMARY KEY, generation INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS future_letters (account TEXT PRIMARY KEY, body TEXT NOT NULL, sealed_at INTEGER NOT NULL, opened_at INTEGER);`);
   const cookieName = development ? 'michiru_session' : '__Host-michiru_session';
   const cookie = (token, age) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${development ? '' : '; Secure'}`;
@@ -87,6 +88,21 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
     return { day_number: day, mood_am: value.mood_am, mood_pm: value.mood_pm,
       answers: value.answers, action_text: value.action_text, action_status: value.action_status,
       reflection: value.reflection, updated_at: value.updated_at, completed_at: value.completed_at };
+  }
+  // A server-controlled generation invalidates writes from devices that were offline
+  // when the user deleted a day or all records. No device clock is trusted.
+  function generation(accountId) {
+    const row = db.prepare('SELECT generation FROM entry_generations WHERE account=?').get(accountId);
+    return row ? row.generation : 0;
+  }
+  function matchesGeneration(accountId, input) {
+    const current = generation(accountId);
+    // Allow pre-upgrade clients only until the first deletion. After that they fail closed.
+    return input.generation === current || (current === 0 && input.generation === undefined);
+  }
+  function bumpGeneration(accountId) {
+    db.prepare('INSERT INTO entry_generations(account,generation) VALUES(?,1) ON CONFLICT(account) DO UPDATE SET generation=generation+1').run(accountId);
+    return generation(accountId);
   }
   function savedEntries(accountId) {
     const result = {};
@@ -170,6 +186,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
         db.exec('BEGIN IMMEDIATE');
         try {
           db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+          db.prepare('DELETE FROM entry_generations WHERE account=?').run(account.id);
           db.prepare('DELETE FROM future_letters WHERE account=?').run(account.id);
           db.prepare('DELETE FROM sessions WHERE account=?').run(account.id);
           db.prepare('DELETE FROM accounts WHERE id=?').run(account.id);
@@ -210,6 +227,7 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
       if (req.method === 'POST' && pathname === '/api/entry') {
         const input = await body(req), day = input.day;
         if (!Number.isInteger(day) || day < 1 || day > 21) return send(res, 400, { error: '日付が不正です。' });
+        if (!matchesGeneration(account.id, input)) return send(res, 409, { error: '別の端末で記録が削除されました。自動同期を停止し、端末の記録を確認してください。' });
         const entry = validEntry(day, input.entry);
         if (!entry) return send(res, 400, { error: '記録の形式が不正です。' });
         db.prepare('INSERT INTO entries(account,day,payload) VALUES(?,?,?) ON CONFLICT(account,day) DO UPDATE SET payload=excluded.payload')
@@ -219,16 +237,30 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
       if (req.method === 'POST' && pathname === '/api/entry/delete') {
         const input = await body(req), day = input.day;
         if (!Number.isInteger(day) || day < 1 || day > 21) return send(res, 400, { error: '日付が不正です。' });
-        db.prepare('DELETE FROM entries WHERE account=? AND day=?').run(account.id, day);
-        return send(res, 200, { ok: true });
+        if (!matchesGeneration(account.id, input)) return send(res, 409, { error: '別の端末で記録が削除されました。同期を停止してください。' });
+        db.exec('BEGIN IMMEDIATE');
+        let next;
+        try {
+          db.prepare('DELETE FROM entries WHERE account=? AND day=?').run(account.id, day);
+          next = bumpGeneration(account.id);
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        return send(res, 200, { ok: true, generation: next });
       }
       if (req.method === 'POST' && pathname === '/api/entries/delete-all') {
+        const input = await body(req);
+        if (!matchesGeneration(account.id, input)) return send(res, 409, { error: '別の端末で記録が削除されました。同期を停止してください。' });
         db.exec('BEGIN IMMEDIATE');
-        try { db.prepare('DELETE FROM entries WHERE account=?').run(account.id); db.prepare('DELETE FROM future_letters WHERE account=?').run(account.id); db.exec('COMMIT'); }
-        catch (error) { db.exec('ROLLBACK'); throw error; }
-        return send(res, 200, { ok: true });
+        let next;
+        try {
+          db.prepare('DELETE FROM entries WHERE account=?').run(account.id);
+          db.prepare('DELETE FROM future_letters WHERE account=?').run(account.id);
+          next = bumpGeneration(account.id);
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        return send(res, 200, { ok: true, generation: next });
       }
-      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: savedEntries(account.id), letterStatus: letterInfo(account.id) });
+      if (req.method === 'GET' && pathname === '/api/bootstrap') return send(res, 200, { account: { ...account, access: true }, content: publicContent(readSource()), entries: savedEntries(account.id), generation: generation(account.id), letterStatus: letterInfo(account.id) });
       if (req.method !== 'GET') return send(res, 405, { error: '許可されていない操作です。' });
       if (pathname === '/') {
         const html = fs.readFileSync(path.join(appRoot, 'index.html'), 'utf8')
