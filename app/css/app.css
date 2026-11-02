@@ -46,7 +46,7 @@ a { color: var(--green); }
 .app-header {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 16px; background: rgba(248, 242, 226, .96); border-bottom: 1px solid var(--border);
+  padding: 8px 16px; background: rgba(255, 248, 223, .96); border-bottom: 1px solid var(--border);
 }
 .brand { font-family: var(--serif); color: var(--ink); text-decoration: none; font-weight: 600; display: flex; flex-direction: column; line-height: 1.3; }
 .brand span { font-size: .75rem; color: var(--muted); font-weight: 400; }
