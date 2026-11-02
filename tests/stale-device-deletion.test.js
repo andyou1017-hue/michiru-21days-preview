@@ -80,3 +80,18 @@ test('fresh local device accepts server generation and can synchronize safely', 
   assert.equal(store.state.syncGeneration, 2);
   store.detach(true);
 });
+
+test('client API updates its generation after deletion before sending another entry', async () => {
+  const requests = [];
+  const ctx = { window: {}, location: { reload() {} }, fetch: async (url, opts) => {
+    requests.push({ url, payload: JSON.parse(opts.body) });
+    return { ok: true, status: 200, json: async () => url.endsWith('/delete') ? { ok: true, generation: 4 } : { ok: true } };
+  } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../runtime/api.js'), 'utf8'), ctx);
+  const remote = ctx.window.MichiruApi.remote(3);
+  await remote.deleteEntry(1);
+  await remote.pushEntry(2, entry(2, 'new'));
+  assert.equal(requests[0].payload.generation, 3);
+  assert.equal(requests[1].payload.generation, 4);
+  assert.equal(remote.getGeneration(), 4);
+});
