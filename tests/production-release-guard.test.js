@@ -40,3 +40,28 @@ test('本番のゲートウェイはHTTPやパス付きHTTPSをDB作成前に拒
   assert.throws(() => createGateway({ origin: 'http://example.com', databasePath: '/tmp/michiru-test-should-not-exist.sqlite' }), /HTTPS origin/);
   assert.throws(() => createGateway({ origin: 'https://example.com/path', databasePath: '/tmp/michiru-test-should-not-exist.sqlite' }), /HTTPS origin/);
 });
+
+test('ゲートウェイ直接CLIは承認フラグを迂回せずDBも作らない', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'michiru-release-guard-'));
+  try {
+    const databasePath = path.join(dir, 'must-not-create.sqlite');
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '../runtime/gateway.js')], {
+      encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        MICHIRU_ORIGIN: 'https://review.example.invalid',
+        MICHIRU_DB: databasePath,
+        MICHIRU_RELEASE_APPROVED: 'no'
+      }
+    });
+    assert.notEqual(result.status, 0, 'direct CLI must fail closed');
+    assert.match(result.stderr, /直接起動は禁止/);
+    assert.equal(fs.existsSync(databasePath), false, 'no personal-data DB may be created');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
