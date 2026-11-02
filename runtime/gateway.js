@@ -251,7 +251,8 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
   return { server, createInvite, revoke };
 }
 if (require.main === module) {
-  const { server } = createGateway({ databasePath: process.env.MICHIRU_DB, origin: process.env.MICHIRU_ORIGIN });
-  server.listen(Number(process.env.PORT || 8341), '127.0.0.1');
+  // Direct CLI startup previously bypassed productionOptions' owner-approval gate.
+  // Use production.js for every real deployment; tests import createGateway directly.
+  throw Error('ゲートウェイの直接起動は禁止です。オーナー承認が必要な runtime/production.js を使用してください。');
 }
 module.exports = { createGateway };
