@@ -42,3 +42,25 @@ unset MICHIRU_BACKUP_PASSPHRASE
 ```
 
 保存先は**既存の0700ディレクトリ**で、シンボリックリンクは不可です。元の `.enc` は通常ファイル・0600権限が必要です。元ファイルは削除しません。別の場所へコピーして復元検証する機能であり、**実際に別サーバー・別拠点・クラウドへ転送されたことの証明ではありません**。マウントの実体、外部保存先の障害耐性、定期実行、保持期間、空き容量監視、失敗通知、秘密の別管理、外部から戻したファイルの復元演習は引き続き未完了です。公開前にこれらを運用担当が確認してください。
+
+
+## バックアップ作成＋別保管先コピーを一度に実行（未運用）
+
+`runtime/backup-offsite-run.js` は、既存の暗号化バックアップ作成と別ディレクトリへのコピー・復元検証を**一度のコマンド**で行う補助ツールです。事前に外部保管先の存在・0700権限・シンボリックリンク不使用・ローカル保存先と異なることを確認し、マウント忘れ時にはローカルバックアップを作る前に失敗します。
+
+```sh
+# 秘密情報はコマンドライン引数・CI・公開ログに書かない
+export MICHIRU_DB=/private/data/michiru.sqlite
+export MICHIRU_BACKUP_DIR=/private/local-backups
+export MICHIRU_OFFSITE_DIR=/private/mounted-offsite
+read -r -s -p 'Backup passphrase: ' MICHIRU_BACKUP_PASSPHRASE; echo
+export MICHIRU_BACKUP_PASSPHRASE
+node runtime/backup-offsite-run.js
+status=$?
+unset MICHIRU_BACKUP_PASSPHRASE
+exit "$status"
+```
+
+コピーに失敗した場合は成功を報告せず終了コード1で停止し、**検証済みローカルバックアップは残します**。エラー後はローカル保存先を点検し、二重実行による保存容量の増加に注意してください。テストでは実在受講生データを使用しません。
+
+このコマンドも**実際に別の機器やクラウドへ保存されたことを証明しません**。定期実行、外部マウントの真正性、通知、保存世代管理、別環境での復元演習、秘密情報の別管理は未完了です。本番適用・公開・課金は行いません。
