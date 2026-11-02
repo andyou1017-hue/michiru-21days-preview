@@ -28,7 +28,8 @@
     memory: 'この端末に保存できません（画面を閉じると消えます）',
     recovery: '記録を読み取れません。元データを保護しています',
     error: '保存できませんでした。画面を閉じる前に「設定」からファイルに保存してください',
-    offline: '端末には保存済み。通信が戻ったら送信します'
+    offline: '端末には保存済み。通信が戻ったら送信します',
+    conflict: '別の端末で記録が削除されています。自動送信を停止しました。設定からバックアップを保存して確認してください'
   };
 
   // ---------- 小さな道具 ----------
@@ -125,7 +126,7 @@
         // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
         if (api) {
           api.boot().then(function (res) {
-            if (res && !store.detached && store.mergeRemote(res.entries || {}) !== false) { store.remote = api.remote(); store.pushRemote(); }
+            if (res && !store.detached && store.mergeRemote(res.entries || {}, res.generation) !== false) { store.remote = api.remote(res.generation); store.pushRemote(); }
           }).catch(function () { store.setStatus('offline'); });
         }
         go('#/');
@@ -1205,11 +1206,11 @@
                   serverLetterState = res.letterStatus;
                   if (!store.setServerLetter(res.letterStatus)) { msg.textContent = '手紙の保存状態を確認できないため同期を停止しています。'; return; }
                 }
-                if (store.mergeRemote(res.entries || {}) === false) {
-                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                if (store.mergeRemote(res.entries || {}, res.generation) === false) {
+                  msg.textContent = store.syncConflict ? '別の端末で記録が削除されています。復元した記録は端末に残し、サーバーへの送信を停止しました。設定からバックアップを保存して確認してください。' : 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
                   return;
                 }
-                store.remote = api.remote();
+                store.remote = api.remote(res.generation);
                 store.pushRemote();
                 msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
               }).catch(function () {
@@ -1338,8 +1339,10 @@
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
         var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: null, letterStatus: res.letterStatus });
-        if (s.state.consentedAt) s.remote = api.remote();
-        if (s.remote) s.mergeRemote(res.entries);
+        if (s.state.consentedAt && s.mergeRemote(res.entries || {}, res.generation) !== false) {
+          s.remote = api.remote(res.generation);
+          s.pushRemote();
+        }
       }).catch(function () {
         view.innerHTML = '<h1>通信を確認してください</h1><p>認証を確認できませんでした。端末に保存した記録を削除せず、通信が戻ってから開き直してください。</p><p><a href="/">もう一度開く</a></p>';
       });
