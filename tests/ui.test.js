@@ -929,7 +929,7 @@ test('P3 手紙：通信できないとき・端末の時計を戻して封を�
     assert.strictEqual(await page.locator('#letter-open').count(), 0);
   }
   // 端末の日付を進めても同じ
-  await page.clock.install({ time: Date.now() + 30 * DAY });
+  await page.clock.setFixedTime(Date.now() + 30 * DAY);
   await page.reload();
   await page.goto(base + '#/day/7/5');
   assert.match(await letterState(page), /通信できるときに確かめます/);
