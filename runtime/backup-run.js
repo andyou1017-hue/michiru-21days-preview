@@ -21,12 +21,12 @@ async function runBackup({ databasePath, backupDirectory, passphrase, now = new 
     throw Error('バックアップ先のシンボリックリンクは使用できません。');
   }
   const dir = fs.realpathSync(backupDirectory);
+  assertPrivatePath(databasePath);
+  assertPrivatePath(path.join(dir, 'backup-check.enc'));
   const stat = fs.statSync(dir);
   if (!stat.isDirectory() || (stat.mode & 0o077) !== 0) {
     throw Error('バックアップ先は所有者専用（0700）のディレクトリにしてください。');
   }
-  assertPrivatePath(databasePath);
-  assertPrivatePath(path.join(dir, 'backup-check.enc'));
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw Error('日時が不正です。');
   const id = suffix === undefined ? crypto.randomBytes(6).toString('hex') : suffix;
   if (!/^[a-f0-9]{12}$/.test(id)) throw Error('バックアップ識別子が不正です。');
