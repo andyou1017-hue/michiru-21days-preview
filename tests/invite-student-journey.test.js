@@ -64,5 +64,41 @@ test('招待された受講生だけがスマホ画面で登録し、21日教材
   }));
   assert.ok(layout.width <= layout.viewport + 1, '受講生トップは375pxで横にはみ出さない');
   assert.deepEqual(errors, [], '受講生画面でスクリプト例外がない');
-  assert.equal((await guestPage.request.get(base + '/api/bootstrap')).status(), 401, '別の未認証ブラウザへ教材を漏らさない');
+
+  // 画面から入力した日本語・絵文字が端末だけでなくサーバーへ届くことを検査する。
+  // 400msの送信待ちがあるため、固定sleepではなく保存済みAPIの値を待つ。
+  const reflection = '受講生の日本語記録 🌼 改行も保存';
+  await page.goto(base + '/#/day/1/5');
+  await page.locator('#refl').fill(reflection);
+  await page.waitForFunction(async expected => {
+    const response = await fetch('/api/bootstrap', { credentials: 'same-origin' });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return data.entries && data.entries[1] && data.entries[1].reflection === expected;
+  }, reflection, { timeout: 15000 });
+  await page.reload();
+  await page.goto(base + '/#/day/1/5');
+  assert.equal(await page.locator('#refl').inputValue(), reflection, '再読み込み後も記録を表示');
+
+  // 新しいブラウザ（別端末相当）で同じ受講生が再ログインしても復元できる。
+  const secondDevice = await browser.newContext({ viewport: { width: 320, height: 720 }, isMobile: true, hasTouch: true });
+  t.after(() => secondDevice.close());
+  const secondPage = await secondDevice.newPage();
+  await secondPage.goto(base + '/');
+  await secondPage.locator('#email').fill(email);
+  await secondPage.locator('#password').fill('a-long-test-passphrase');
+  await secondPage.locator('#submit').click();
+  await secondPage.locator('#agree').waitFor({ timeout: 15000 });
+  await secondPage.locator('#agree').check();
+  await secondPage.locator('#start').click();
+  await secondPage.locator('.daily-door').waitFor();
+  // 同意直後の初回同期と画面描画が競合しないよう、再読み込みでサーバーの状態を取得する。
+  await secondPage.reload();
+  await secondPage.goto(base + '/#/day/1/5');
+  await secondPage.waitForFunction(expected => {
+    const field = document.querySelector('#refl');
+    return field && field.value === expected;
+  }, reflection, { timeout: 15000 });
+  assert.equal(await secondPage.locator('#refl').inputValue(), reflection, '別端末で同一アカウントの記録を復元');
+  assert.equal((await guestPage.request.get(base + '/api/bootstrap')).status(), 401, '未認証者へ記録を漏らさない');
 });
