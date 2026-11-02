@@ -72,7 +72,10 @@ async function exportEncryptedBackup(source, destination, passphrase) {
     fs.writeFileSync(staged, Buffer.concat([MAGIC, salt, iv]), { flag: 'wx', mode: 0o600 });
     await pipeline(fs.createReadStream(snapshot), cipher, fs.createWriteStream(staged, { flags: 'a', mode: 0o600 }));
     fs.appendFileSync(staged, cipher.getAuthTag());
-    // Publish only a complete encrypted artifact; never overwrite an older backup.
+    // Verify the actual encrypted artifact can be authenticated and restored
+    // before publishing a backup that an operator may send offsite.
+    await verifyEncryptedBackup(staged, passphrase);
+    // Publish only a complete, verified artifact; never overwrite an older backup.
     publishVerifiedFile(staged, destination);
     return { bytes: fs.statSync(destination).size };
   } finally {
@@ -115,12 +118,30 @@ async function restoreEncryptedBackup(source, destination, passphrase) {
   }
 }
 
+// Read-only verification for a backup copied back from external storage.
+// The decrypted database exists only in a private temporary directory.
+async function verifyEncryptedBackup(source, passphrase) {
+  assertPrivatePath(source);
+  if (typeof passphrase !== 'string' || passphrase.length < 16) {
+    throw Error('16文字以上の長いバックアップ用パスフレーズが必要です。');
+  }
+  const dir = privateTemp();
+  try {
+    const recovered = path.join(dir, 'verification.sqlite');
+    await restoreEncryptedBackup(source, recovered, passphrase);
+    return { bytes: fs.statSync(recovered).size };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 if (require.main === module) {
   const [action, source, destination] = process.argv.slice(2);
   const passphrase = process.env.MICHIRU_BACKUP_PASSPHRASE;
-  const task = action === 'export' ? exportEncryptedBackup : action === 'restore' ? restoreEncryptedBackup : null;
-  if (!task || !source || !destination) {
-    process.stderr.write('使い方: node runtime/encrypted-backup.js export|restore /絶対パス/元 /絶対パス/先\n');
+  const task = action === 'export' ? exportEncryptedBackup : action === 'restore' ? restoreEncryptedBackup :
+    action === 'verify' ? (file, _unused, secret) => verifyEncryptedBackup(file, secret) : null;
+  if (!task || !source || (action !== 'verify' && !destination)) {
+    process.stderr.write('使い方: node runtime/encrypted-backup.js export|restore /絶対パス/元 /絶対パス/先、または verify /絶対パス/暗号化ファイル\n');
     process.exitCode = 1;
   } else task(source, destination, passphrase).then(() => {
     process.stdout.write('暗号化バックアップ処理が完了しました。外部保管・復元運用は別途確認してください。\n');
@@ -129,4 +150,4 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
-module.exports = { exportEncryptedBackup, restoreEncryptedBackup };
+module.exports = { exportEncryptedBackup, restoreEncryptedBackup, verifyEncryptedBackup };
