@@ -54,6 +54,9 @@ test('招待制の320px画面で特大文字を選んでも教材・手紙の日
   assert.equal(await page.locator('[data-fs="xl"]').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize), '22px');
   await page.reload();
+  // 招待制では認証bootstrapが非同期。load完了直後の未初期化DOMを
+  // 設定消失と誤判定しない。反映されなければ待機上限で確実に失敗する。
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-font') === 'xl', null, { timeout: 10000 });
   assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-font')), 'xl',
     '特大文字の設定は再読み込み後も維持');
 
