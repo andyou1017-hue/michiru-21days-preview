@@ -11,6 +11,8 @@
 read -r -s -p 'Backup passphrase: ' MICHIRU_BACKUP_PASSPHRASE; echo
 export MICHIRU_BACKUP_PASSPHRASE
 node runtime/encrypted-backup.js export /private/data/michiru.sqlite /external-private/2026-11-02.enc
+# 外部保管から戻した暗号化ファイルも、DBを上書きせず読み取り検証できる。
+node runtime/encrypted-backup.js verify /external-private/2026-11-02.enc
 # 復元先は稼働中のDBではなく、まだ存在しない別の非公開パスにする。
 node runtime/encrypted-backup.js restore /external-private/2026-11-02.enc /private/recovery-test.sqlite
 unset MICHIRU_BACKUP_PASSPHRASE
@@ -23,3 +25,9 @@ unset MICHIRU_BACKUP_PASSPHRASE
 ## 2026-11-02 追加：書き込み途中のファイルを公開しない
 
 暗号化エクスポートと復元は、保存先と同じファイルシステム上の所有者専用一時ディレクトリに全量をコピーし、0600権限を設定してからハードリンクで最終ファイル名を**排他的・原子的に**公開します。既存ファイルの上書きは禁止し、途中のコピー失敗・公開失敗時は一時ファイルを削除します。保存先のファイルシステムはハードリンクに対応している必要があります。対応しない外部ストレージへ直接書く場合は安全側に失敗するため、まず非公開の対応ディスクへ作成し、外部への転送と復元確認を別工程で行ってください。これは外部転送や定期バックアップを自動化するものではありません。
+
+## 2026-11-02 追加：配布前の暗号化バックアップ自己検証
+
+暗号化エクスポートでは、最終ファイル名を公開する前に暗号化済みデータを一度復号し、認証タグとSQLiteの `integrity_check` を検証するようにした。検証が失敗した場合は最終ファイルを作らず、一時データを削除する。`verify` は外部保存から戻した暗号化ファイルを、稼働中DBや既存バックアップを上書きせず検査する読み取り専用操作。復号した一時DBは所有者専用領域から処理終了時に削除する。
+
+この検査は**外部保管先への転送が成功したことを保証しない**。外部保管後にそのファイルを別の安全な場所へ取り出し、`verify` と復元演習を実施する必要がある。暗号化バックアップの定期実行・外部転送・保管期限・監視は引き続き未実装。本番データや課金サービスは使用していない。
