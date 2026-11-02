@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { exportEncryptedBackup, restoreEncryptedBackup } = require('../runtime/encrypted-backup');
+const { exportEncryptedBackup, restoreEncryptedBackup, verifyEncryptedBackup } = require('../runtime/encrypted-backup');
 const passphrase = 'long-test-only-passphrase-not-for-production';
 
 function fixture(t) {
@@ -37,6 +37,23 @@ test('稼働中DBの暗号化書き出し・整合性確認付き復元・所有
   assert.deepEqual(fs.readFileSync(f.restored), bytes);
   await assert.rejects(exportEncryptedBackup(f.source, f.encrypted, passphrase), { code: 'EEXIST' });
   assert.deepEqual(fs.readFileSync(f.encrypted), data);
+});
+
+test('暗号化ファイルを復元先指定なしで検証し、破損と誤った秘密を拒否する', async t => {
+  const f = fixture(t);
+  t.after(() => f.db.close());
+  await exportEncryptedBackup(f.source, f.encrypted, passphrase);
+  const before = fs.readFileSync(f.encrypted);
+  const verified = await verifyEncryptedBackup(f.encrypted, passphrase);
+  assert.ok(verified.bytes > 0, '復元したSQLiteのサイズが正しい');
+  assert.deepEqual(fs.readFileSync(f.encrypted), before, '検証は暗号化原本を変更しない');
+  assert.equal(fs.existsSync(f.restored), false, '検証では恒久的な復元DBを作らない');
+  await assert.rejects(verifyEncryptedBackup(f.encrypted, 'wrong-passphrase-but-long-enough'));
+  const tampered = Buffer.from(before);
+  tampered[tampered.length - 20] ^= 1;
+  fs.writeFileSync(f.encrypted, tampered);
+  await assert.rejects(verifyEncryptedBackup(f.encrypted, passphrase));
+  assert.equal(fs.existsSync(f.restored), false);
 });
 
 test('誤ったパスフレーズ・改ざん・短い秘密鍵では復元ファイルを残さない', async t => {
