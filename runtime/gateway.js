@@ -8,6 +8,7 @@ const { promisify } = require('node:util');
 const { DatabaseSync } = require('node:sqlite');
 const { publicContent, readSource } = require('../tools/build-content');
 const { assertPrivatePath } = require('./private-path');
+const { readJsonBody: body } = require('./request-body');
 const scrypt = promisify(crypto.scrypt);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -69,19 +70,6 @@ function createGateway({ databasePath, origin, development = false, now = Date.n
   function send(res, status, value) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(value));
-  }
-  async function body(req, limit = 256 * 1024) {
-    if (!(req.headers['content-type'] || '').startsWith('application/json')) throw Object.assign(Error(), { status: 415 });
-    let text = '';
-    for await (const chunk of req) {
-      text += chunk;
-      if (Buffer.byteLength(text) > limit) throw Object.assign(Error(), { status: 413 });
-    }
-    try {
-      const value = JSON.parse(text);
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error();
-      return value;
-    } catch (_) { throw Object.assign(Error(), { status: 400 }); }
   }
   // First stage of account-scoped server persistence. Client opt-in/sync is intentionally
   // not enabled until the privacy notice, conflict rules, and full-record scope are reviewed.
