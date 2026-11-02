@@ -48,6 +48,22 @@ test('招待制アプリで21日×5ステップを320pxで表示し、花・ミ�
   await page.locator('#start').click();
   await page.locator('.day-list').waitFor();
 
+  // Sunshine palette must remain consistent between the body and sticky header.
+  // The four bottom navigation targets must remain usable on narrow touch screens.
+  const chrome = await page.evaluate(() => ({
+    beige: getComputedStyle(document.documentElement).getPropertyValue('--beige').trim(),
+    header: getComputedStyle(document.querySelector('.app-header')).backgroundColor,
+    navHeights: [...document.querySelectorAll('.app-nav a')].map(el => el.getBoundingClientRect().height)
+  }));
+  const beigeHex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(chrome.beige);
+  const headerRgb = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/.exec(chrome.header);
+  assert.ok(beigeHex && headerRgb, 'Sunshine palette must use comparable RGB colors');
+  assert.deepEqual(headerRgb.slice(1, 4).map(Number), beigeHex.slice(1).map(x => parseInt(x, 16)),
+    'Sticky header must match the sunshine cream background');
+  assert.equal(chrome.navHeights.length, 4, 'Four bottom navigation targets are required');
+  assert.ok(chrome.navHeights.every(height => height >= 44),
+    'Bottom navigation targets must be at least 44px high on mobile');
+
   const names = new Set();
   const controls = {
     1: '#mood-am', 2: '#t-sec', 3: '#ans-0', 4: '#act', 5: '#refl'
