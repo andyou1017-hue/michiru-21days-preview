@@ -514,6 +514,8 @@ test('T23 どのステップでも中断でき、記録は残る', { skip }, asy
   await consent(page);
   for (let s = 1; s <= 5; s++) {
     await page.goto(base + '#/day/10/' + s);
+    // WebKitではload完了後に非同期レンダリングされるため、表示を待って判定する。
+    await page.locator('#pause').waitFor({ state: 'visible', timeout: 10000 });
     assert.ok(await page.isVisible('#pause'), 'ステップ' + s);
   }
   await page.goto(base + '#/day/10/3');
