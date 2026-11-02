@@ -56,7 +56,7 @@ test('招待制アプリで21日×5ステップを320pxで表示し、花・ミ�
     navHeights: [...document.querySelectorAll('.app-nav a')].map(el => el.getBoundingClientRect().height)
   }));
   const beigeHex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(chrome.beige);
-  const headerRgb = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/.exec(chrome.header);
+  const headerRgb = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(chrome.header);
   assert.ok(beigeHex && headerRgb, 'Sunshine palette must use comparable RGB colors');
   assert.deepEqual(headerRgb.slice(1, 4).map(Number), beigeHex.slice(1).map(x => parseInt(x, 16)),
     'Sticky header must match the sunshine cream background');
