@@ -1237,7 +1237,19 @@
     });
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
-        if (ok) store.deleteAll().then(function (done) { if (done !== false) go('#/intro'); });
+        if (!ok) return;
+        // A conflicting old device may still have a server-side future letter or
+        // other days. Fetch the latest generation before honoring "delete all".
+        var ready = api && store.syncConflict
+          ? api.boot().then(function (res) {
+              if (!res || !Number.isSafeInteger(res.generation)) throw Error('最新の削除状態を確認できません。');
+              store.remote = api.remote(res.generation);
+              return true;
+            }).catch(function () { store.setStatus('conflict'); return false; })
+          : Promise.resolve(true);
+        ready.then(function (canDelete) {
+          if (canDelete) store.deleteAll().then(function (done) { if (done !== false) go('#/intro'); });
+        });
       });
     });
     bindAccount();
