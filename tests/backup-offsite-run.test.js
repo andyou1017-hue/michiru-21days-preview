@@ -58,6 +58,21 @@ test('外部保管先のマウント忘れ・同一ディレクトリ・権限�
   assert.deepEqual(fs.readdirSync(f.offsiteDirectory), []);
 });
 
+test('親子ディレクトリを外部保管先と誤認せず、作成前に拒否する', async t => {
+  const f = fixture(t);
+  const nestedOffsite = path.join(f.backupDirectory, 'nested-offsite');
+  fs.mkdirSync(nestedOffsite, { mode: 0o700 });
+  await assert.rejects(runBackupAndCopy({ ...f, offsiteDirectory: nestedOffsite }), /親子ディレクトリ/);
+  assert.deepEqual(fs.readdirSync(nestedOffsite), []);
+
+  const nestedBackup = path.join(f.offsiteDirectory, 'nested-local');
+  fs.mkdirSync(nestedBackup, { mode: 0o700 });
+  await assert.rejects(runBackupAndCopy({ ...f, backupDirectory: nestedBackup }), /親子ディレクトリ/);
+  assert.deepEqual(fs.readdirSync(nestedBackup), []);
+  assert.deepEqual(fs.readdirSync(f.backupDirectory), ['nested-offsite']);
+  assert.deepEqual(fs.readdirSync(f.offsiteDirectory), ['nested-local']);
+});
+
 test('外部コピー失敗時は成功を返さず、復元可能なローカルバックアップを残す', async t => {
   const f = fixture(t);
   // A directory with the final filename makes the exclusive offsite publish fail.
