@@ -23,8 +23,14 @@ function checkOffsiteDirectory(offsiteDirectory, backupDirectory) {
   }
   const realOffsite = fs.realpathSync(offsiteDirectory);
   const realBackup = fs.realpathSync(backupDirectory);
-  if (realOffsite === realBackup) {
-    throw Error('バックアップ先と外部保管先は別のディレクトリにしてください。');
+  // A nested directory is not a separate storage location. Reject both
+  // directions so a mistaken path cannot be reported as offsite protection.
+  const nestedWithin = (parent, child) => {
+    const relative = path.relative(parent, child);
+    return relative === '' || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
+  };
+  if (nestedWithin(realBackup, realOffsite) || nestedWithin(realOffsite, realBackup)) {
+    throw Error('バックアップ先と外部保管先は同一・親子ディレクトリにできません。別のディレクトリを指定してください。');
   }
   return realOffsite;
 }
