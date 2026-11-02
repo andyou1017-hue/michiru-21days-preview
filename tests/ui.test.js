@@ -841,7 +841,8 @@ test('P3 手紙：封から7日間は、どの画面からも開けない。端�
   await page.waitForTimeout(300);
   assert.strictEqual(await page.locator('.letter-arrived').count(), 0);
   // 端末の日付を30日進めても（サーバー時刻は変わらない）開かない
-  await page.clock.install({ time: Date.now() + 30 * DAY });
+  // 日付だけを変更し、タイマー全体の仮想化によるWebKitクラッシュを避ける。
+  await page.clock.setFixedTime(Date.now() + 30 * DAY);
   await page.reload();
   await page.goto(base + '#/day/7/5');
   assert.match(await letterState(page), /封をしたまま/);
@@ -945,7 +946,7 @@ test('P3 手紙：通信できないとき・端末の時計を戻して封を�
   await b.page.goto(base + '#/');
   await b.page.waitForTimeout(200);
   const maxSeen = Date.parse((await stored(b.page)).clock.maxSeen);
-  await b.page.clock.install({ time: Date.now() - 30 * DAY });
+  await b.page.clock.setFixedTime(Date.now() - 30 * DAY);
   await b.page.reload();
   await b.context.setOffline(true);
   await b.page.goto(base + '#/day/1/5');
