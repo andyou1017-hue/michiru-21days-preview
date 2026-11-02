@@ -550,7 +550,7 @@
     if (currentGeneration !== this.state.syncGeneration) {
       // Keep unsynchronized local entries for manual backup, but never upload them
       // into a generation where the user has deleted records on another device.
-      if (Object.keys(this.state.entries).length || Object.keys(this.dirtyDays).length || Object.keys(this.pendingRemote).length) {
+      if (Object.keys(this.state.entries).length || Object.keys(this.dirtyDays).length || Object.keys(this.pendingRemote).length || (this.state.futureLetter && this.state.futureLetter.server_managed)) {
         this.syncConflict = true;
         this.remote = null;
         this.setStatus('conflict');
