@@ -26,8 +26,11 @@ SQLiteは単一インスタンス用。複数レプリカに同じDBをコピー
 ```sh
 export MICHIRU_ORIGIN=https://your-approved-domain.example
 export MICHIRU_DB=/private/persistent-volume/michiru.sqlite
+# 次の2行はオーナーの教材承認・マージ・本番公開承認後のみ実行する。
+export MICHIRU_RELEASE_APPROVED=yes
+node runtime/production.js
+# 招待コード発行も正式運用の設定後、管理者が別途実行する。
 node runtime/manage.js invite student@example.com
-node runtime/gateway.js
 ```
 
 inviteコマンドが出す招待コードは秘密として本人に別途渡す。この開発作業では実受講生のコード発行・連絡はしていない。
