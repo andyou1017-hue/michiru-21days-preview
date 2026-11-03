@@ -1,0 +1,64 @@
+name: PR regression tests (no deployment)
+on:
+  pull_request:
+    branches: [main, proposal/engaging-21days-ux]
+  push:
+    branches: ['codex/**', 'chatgpt/**']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify generated content
+        run: |
+          node tools/build-content.js
+          git diff --exit-code -- app/js/content.js
+      - name: Install browser test tools
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Run regression tests
+        env:
+          PW_BROWSER: ${{ matrix.browser }}
+          MICHIRU_SCREENSHOTS: artifacts/iphone-like
+        run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-like-${{ matrix.browser }}
+          path: artifacts/iphone-like
+          if-no-files-found: ignore
+          retention-days: 3
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment configuration and build local image
+        run: |
+          MICHIRU_DOMAIN=review.example.invalid MICHIRU_RELEASE_APPROVED=no docker compose config --quiet
+          docker build -t michiru-local-review .
+      - name: Start isolated local test container
+        run: |
+          # CI-only synthetic approval: invalid test domain + no network; never deploys or authorizes production.
+          docker run -d --name michiru-local-check --network none --read-only --cap-drop ALL --tmpfs /data:rw,uid=1000,gid=1000,mode=0700 --tmpfs /tmp -e MICHIRU_ORIGIN=https://review.example.invalid -e MICHIRU_DB=/data/private/check.sqlite -e MICHIRU_RELEASE_APPROVED=yes michiru-local-review node runtime/production.js
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if docker exec michiru-local-check node runtime/healthcheck.js; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Back up running test database
+        run: docker exec michiru-local-check node runtime/backup.js /data/private/backup.sqlite
+      - name: Remove test container
+        if: always()
+        run: docker rm -f michiru-local-check || true

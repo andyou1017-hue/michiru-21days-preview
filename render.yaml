@@ -1,0 +1,28 @@
+# REVIEW ONLY: creating this Blueprint can provision a paid service.
+# Owner must approve plan, final curriculum, merge and production publication.
+services:
+  - type: web
+    name: michiru-21days-invite
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: node --version
+    startCommand: npm run start:production
+    numInstances: 1
+    disk:
+      name: michiru-private-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22.16.0"
+      - key: NODE_ENV
+        value: production
+      - key: MICHIRU_DB
+        value: /var/data/michiru.sqlite
+      - key: MICHIRU_PERSISTENT_DISK_CONFIRMED
+        value: "yes"
+      - key: MICHIRU_ORIGIN
+        sync: false
+      - key: MICHIRU_RELEASE_APPROVED
+        sync: false

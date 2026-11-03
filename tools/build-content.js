@@ -8,7 +8,15 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const DAY_FIELDS = ['day', 'work_id', 'title', 'intro', 'prompts', 'action', 'reflection', 'compare_with_day'];
 
-function publicContent(src) {
+// ミニ解説（「今日の小さな理由」）：正式原稿とは別のファイル。承認前は草案として表示する
+function readGuides() {
+  const f = path.join(ROOT, 'content', 'mini-guides.draft.json');
+  if (!fs.existsSync(f)) return null;
+  const g = JSON.parse(fs.readFileSync(f, 'utf8'));
+  return { status: g.status, label: g.label, days: g.days };
+}
+
+function publicContent(src, guides) {
   return {
     program: src.program,
     course_variant: src.course_variant,
@@ -21,6 +29,7 @@ function publicContent(src) {
       return out;
     }),
     closing: src.closing,
+    mini_guides: guides === undefined ? readGuides() : guides,
   };
 }
 

@@ -1,2 +1,12 @@
 node_modules/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.runtime/
+.env
+.env.*
 _site/
+
+/node_modules
+/artifacts/

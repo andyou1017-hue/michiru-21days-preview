@@ -1,14 +1,15 @@
-/* 満ちる眼の配色・書体を引き継ぐ（スマホ縦画面を基本にする） */
+/* 陽だまりのクリームイエローを基調に（オーナー意向 2026-10-31：癒されて元気になるイエローベース、毎日違う花）。
+   色の値は Drive「10時 新デザイン確定方針」の提案仕様。スマホ縦画面を基本にする */
 :root {
-  --ink: #33362d;
-  --green: #3d6b47;
-  --green-light: #4f8259;
-  --beige: #f8f2e2;
-  --beige-deep: #efe4c8;
-  --gold: #8a6a1c;
-  --white: #ffffff;
-  --border: #d9caa3;
-  --muted: #5e6152;
+  --ink: #524934;        /* 本文 */
+  --green: #61785B;      /* 控えめなセージグリーン（ボタン・見出し） */
+  --green-light: #6F8A68;
+  --beige: #FFF8DF;      /* 背景：クリームイエロー */
+  --beige-deep: #FFF3C8; /* 陽だまりの淡い黄色 */
+  --gold: #8F5C17;       /* アクセントの金茶（読みやすさのため提案値 #A66B20 を少し濃く） */
+  --white: #FFFEF9;      /* カード */
+  --border: #EFDFAE;
+  --muted: #6E6550;      /* 補助の文字（提案値 #766D59 を少し濃く） */
   --danger: #9b2c2c;
   --serif: "Noto Serif JP", "游明朝", "Yu Mincho", "Hiragino Mincho ProN", serif;
   --sans: "Noto Sans JP", "游ゴシック", "Yu Gothic", "Hiragino Sans", sans-serif;
@@ -45,16 +46,16 @@ a { color: var(--green); }
 .app-header {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 16px; background: rgba(248, 242, 226, .96); border-bottom: 1px solid var(--border);
+  padding: 8px 16px; background: rgba(255, 248, 223, .96); border-bottom: 1px solid var(--border);
 }
 .brand { font-family: var(--serif); color: var(--ink); text-decoration: none; font-weight: 600; display: flex; flex-direction: column; line-height: 1.3; }
 .brand span { font-size: .75rem; color: var(--muted); font-weight: 400; }
 .save-status { margin: 0; font-size: .75rem; color: var(--muted); text-align: right; max-width: 55%; }
-.save-status[data-state="memory"], .save-status[data-state="offline"] { color: var(--danger); }
+.save-status[data-state="memory"], .save-status[data-state="offline"], .save-status[data-state="error"], .save-status[data-state="recovery"] { color: var(--danger); font-weight: 700; }
 
 .view { max-width: 680px; margin: 0 auto; padding: 16px; }
 .view:focus { outline: none; }
-.card { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 20px 16px; }
+.card { background: var(--white); border: 1px solid var(--border); border-radius: 22px; padding: 22px 18px; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -81,7 +82,7 @@ a { color: var(--green); }
 @media (min-width: 520px) { .day-list { grid-template-columns: 1fr 1fr; } }
 .day-card {
   display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px;
-  min-height: 64px; padding: 10px 14px; background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+  min-height: 64px; padding: 10px 14px; background: var(--white); border: 1px solid var(--border); border-radius: 18px;
   color: var(--ink); text-decoration: none;
 }
 .day-no { grid-row: 1 / 3; align-self: center; font-family: var(--serif); color: var(--gold); font-size: .85rem; }
@@ -98,10 +99,11 @@ a { color: var(--green); }
 .steps .dot { display: inline-flex; width: 30px; height: 30px; border-radius: 50%; align-items: center; justify-content: center; border: 1px solid var(--green); color: var(--green); font-size: .85rem; background: var(--white); }
 .steps [aria-current] .dot { background: var(--green); color: var(--white); font-weight: 700; }
 .step-name { font-weight: 600; color: var(--green); margin: 0 0 8px; }
-.step-body { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.step-body { background: var(--white); border: 1px solid var(--border); border-radius: 22px; padding: 16px; }
 .story { border-left: 4px solid var(--gold); padding: 4px 12px; margin-bottom: 12px; font-family: var(--serif); }
 .story .label { font-family: var(--sans); font-size: .85rem; color: var(--gold); margin: 0; }
 .field { margin: 14px 0; }
+#login-form input { display: block; width: 100%; min-height: 48px; font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
 .field label { display: block; font-weight: 600; margin-bottom: 4px; }
 textarea {
   width: 100%; max-width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
@@ -146,7 +148,7 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 
 .app-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(4, 1fr);
   background: var(--white); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
 }
 .app-nav a { min-height: 56px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--ink); font-size: .9rem; }
@@ -158,4 +160,83 @@ dl dd { margin: 2px 0 0; padding-left: 0; white-space: normal; }
 /* 画面内の確認 */
 .confirm-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(51, 54, 45, .45); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .confirm { background: var(--white); border-radius: 12px; padding: 16px 20px; max-width: 420px; width: 100%; box-shadow: 0 8px 30px rgba(0, 0, 0, .2); }
-.confirm p:first-child { font-weight: 600; }
+.confirm p:first-child { font-weight: 600; white-space: pre-line; }
+
+/* 試作：毎日開きたくなる静かな入口。既存の記録・教材には影響しない */
+.daily-door { background: linear-gradient(180deg, var(--beige-deep), var(--white) 70%); border: 1px solid var(--border); border-radius: 28px; padding: 22px 18px; margin: 18px 0; text-align: center; }
+.daily-door h2 { margin: 8px 0 10px; color: var(--green); font-size: 1.25rem; }
+.daily-door p { margin: 8px 0; }
+.daily-door .daily-door-label { font-weight: 600; color: var(--ink); }
+.daily-door .btn { margin-top: 12px; width: min(100%, 330px); }
+
+/* 私の発見・手紙 */
+.discovery-form { margin: 16px 0; padding: 12px; background: var(--beige); border-radius: 10px; }
+.discovery-form label { display: block; font-weight: 600; margin-bottom: 4px; }
+.disc-mini { margin: 8px 0 0; padding-left: 1.2em; font-size: .9rem; }
+.disc-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.disc-list li { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+.disc-list blockquote, .letter-quote { margin: 0; font-family: var(--serif); font-size: 1.05rem; white-space: normal; }
+.letter-quote { background: #fffdf7; border-left: 4px solid var(--gold); padding: 12px 14px; border-radius: 6px; }
+.disc-meta { margin: 6px 0; font-size: .8rem; color: var(--muted); }
+.letter-box { margin: 16px 0; background: var(--beige); border-radius: 10px; padding: 8px 12px; }
+.letter-box summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.letter-read { margin-bottom: 16px; padding: 12px; border: 1px dashed var(--gold); border-radius: 10px; }
+.letter-read h2 { margin: 0 0 4px; font-size: 1rem; }
+.letter-intro, .letter-guide { font-family: var(--serif); line-height: 1.9; }
+.letter-intro h3 { font-size: 1.05rem; margin: 8px 0; color: var(--green); }
+.letter-intro p, .letter-guide p { margin: 0 0 .4em; }
+.letter-guide { margin: 12px 0; padding: 10px 12px; border-left: 3px solid var(--gold); background: #fffdf7; }
+.seal-state { font-weight: 600; color: var(--green); margin: 4px 0; }
+.answer-view { margin: 8px 0 12px; background: #fffdf7; border-radius: 8px; padding: 4px 12px; font-family: var(--serif); }
+.answer-view summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; font-family: var(--sans); }
+.answer-view p { margin: 0 0 .5em; line-height: 1.9; }
+.letter-prep { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--white); text-align: center; }
+.letter-prep h3 { margin: 0 0 4px; font-size: 1rem; }
+.future-audio { text-align: left; margin: 16px 0; padding: 14px; background: var(--beige); border-radius: 18px; }
+.future-audio h4 { margin: 8px 0; color: var(--green); }
+.future-audio select { width: 100%; min-height: 44px; font: inherit; color: var(--ink); background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 6px; }
+.guidance-transcript summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.lesson-reader { margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.lesson-reader p { margin: 6px 0; }
+.writing-time { padding: 12px; margin: 12px 0; border: 1px solid var(--border); border-radius: 16px; background: var(--beige); }
+.future-feel { font-family: var(--serif); line-height: 1.9; margin: 8px 0; }
+.future-feel p { margin: 0 0 .3em; }
+.letter-arrived { margin: -6px 0 16px; text-align: center; }
+.letter-arrived a { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px dashed var(--gold); border-radius: 999px; background: #fffdf7; text-decoration: none; }
+.warn-msg { color: var(--danger); font-weight: 600; margin: 4px 0; }
+.warn-msg:empty { display: none; }
+.mini-guide { margin: 0 0 14px; padding: 4px 14px 8px; background: var(--beige); border-radius: 10px; }
+.mini-guide summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; color: var(--green); }
+.mini-guide p { margin: 0 0 6px; line-height: 1.9; }
+.draft-mark { font-size: .75rem; color: var(--muted); }
+
+/* 21日の花 */
+.flower { display: block; max-width: 100%; height: auto; }
+.door-flower { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 4px 0 6px; }
+.door-flower .flower { width: 132px; height: 132px; filter: drop-shadow(0 4px 10px rgba(166, 107, 32, .12)); }
+.flower-name { font-size: .85rem; color: var(--muted); margin: 0; }
+.door-guide { font-size: .92rem; color: var(--muted); text-align: left; background: rgba(255, 254, 249, .8); border-radius: 14px; padding: 10px 12px; margin: 10px 0; }
+.door-action { text-align: left; margin: 8px 0; }
+.door-action strong { color: var(--green); }
+.door-time { font-size: .85rem; color: var(--muted); margin: 4px 0; }
+.day-head { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: start; }
+.day-head > * { grid-column: 1; min-width: 0; }
+.day-head .head-flower { grid-column: 2; grid-row: 1 / 3; text-align: center; }
+.day-head .head-flower .flower { width: 64px; height: 64px; }
+.day-head .head-flower .flower-name { font-size: .72rem; }
+.day-card { grid-template-columns: auto 1fr auto; }
+.day-card .card-flower { grid-column: 3; grid-row: 1 / 3; align-self: center; }
+.day-card .card-flower .flower { width: 40px; height: 40px; }
+.closing-flower .flower { width: 120px; height: 120px; margin: 0 auto 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  .door-flower .flower { animation: flower-sway 6s ease-in-out infinite; transform-origin: 50% 90%; }
+}
+@keyframes flower-sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+
+/* 初回の案内画面にもDay1の花を見せる。本文の前に余白を確保する。 */
+.intro-flower { display: flex; justify-content: center; margin: 10px auto 14px; }
+.intro-flower .flower { width: 132px; height: 132px; filter: drop-shadow(0 4px 10px rgba(166, 107, 32, .12)); }
+
+/* 書く時間は記入欄の直前に、控えめな大きさで表示する。 */
+.writing-time .t-sec { font-size: 1.9rem; margin: 2px 0; line-height: 1.3; }
+.writing-time p { margin: 4px 0; }
