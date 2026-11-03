@@ -1134,6 +1134,7 @@
       '<label class="btn" for="import-file">ファイルから記録を戻す</label><input type="file" id="import-file" accept="application/json,.json" class="sr-only"></p>' +
       '<p id="import-msg" role="status"></p>' +
       '<h2>記録の削除</h2><p><button type="button" class="btn danger" id="delete-all">すべての記録を削除</button></p>' +
+      '<p id="delete-msg" role="status"></p>' +
       '<h2>記録の扱い</h2>' + privacyHtml() +
       accountHtml() +
       '<h2>ヘルプ</h2><ul class="notice"><li>どの日からでも始められます。とばした日には、あとから戻れます。</li>' +
@@ -1238,17 +1239,32 @@
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
         if (!ok) return;
-        // A conflicting old device may still have a server-side future letter or
-        // other days. Fetch the latest generation before honoring "delete all".
-        var ready = api && store.syncConflict
+        var msg = document.getElementById('delete-msg');
+        msg.textContent = '';
+        // An authenticated device may have no remote adapter yet (for example,
+        // before first consent or after a failed merge). Never report a local-only
+        // deletion as complete while server-side entries still exist.
+        var ready = api
           ? api.boot().then(function (res) {
-              if (!res || !Number.isSafeInteger(res.generation)) throw Error('最新の削除状態を確認できません。');
+              if (!res || !res.account || !account ||
+                  String(res.account.id) !== String(account.id) ||
+                  !Number.isSafeInteger(res.generation) || res.generation < 0) {
+                throw Error('最新の削除状態を確認できません。');
+              }
               store.remote = api.remote(res.generation);
               return true;
-            }).catch(function () { store.setStatus('conflict'); return false; })
+            }).catch(function () {
+              store.setStatus('offline');
+              msg.textContent = 'サーバーの記録を確認できないため削除しませんでした。通信を確認してから、もう一度お試しください。';
+              return false;
+            })
           : Promise.resolve(true);
         ready.then(function (canDelete) {
-          if (canDelete) store.deleteAll().then(function (done) { if (done !== false) go('#/intro'); });
+          if (!canDelete) return;
+          store.deleteAll().then(function (done) {
+            if (done !== false) go('#/intro');
+            else msg.textContent = '削除完了を確認できませんでした。記録とバックアップを確認してから、もう一度お試しください。';
+          });
         });
       });
     });
