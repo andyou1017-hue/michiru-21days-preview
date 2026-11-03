@@ -48,7 +48,9 @@ test('別端末の初回同意前でも全削除はサーバーに反映し、�
     return (await r.json()).entries['1']?.answers?.[0] === 'サーバーに保存した記録';
   }, null, { timeout: 10000 });
 
-  const second = await browser.newContext();
+  // Route the simulated outage at the page level; disable service-worker
+  // interception so WebKit and Chromium observe the same mocked response.
+  const second = await browser.newContext({ serviceWorkers: 'block' });
   const pageB = await second.newPage();
   t.after(async () => second.close());
   await pageB.goto(base);
@@ -78,12 +80,17 @@ test('別端末の初回同意前でも全削除はサーバーに反映し、�
     return (await r.json()).entries['1']?.answers?.[0] === '通信障害時に残す記録';
   }, null, { timeout: 10000 });
   await pageB.goto(base + '/#/settings');
-  await pageB.route('**/api/bootstrap', route => route.fulfill({
-    status: 503, contentType: 'application/json', body: '{"error":"temporarily unavailable"}'
-  }));
+  let blocked = 0;
+  await pageB.route('**/api/bootstrap', route => {
+    blocked++;
+    return route.fulfill({
+      status: 503, contentType: 'application/json', body: '{"error":"temporarily unavailable"}'
+    });
+  });
   await pageB.click('#delete-all');
   await pageB.click('#confirm-ok');
-  await pageB.waitForFunction(() => /削除しませんでした/.test(document.getElementById('delete-msg')?.textContent || ''));
+  await pageB.waitForFunction(() => /削除しませんでした/.test(document.getElementById('delete-msg')?.textContent || ''), null, { timeout: 10000 });
+  assert.ok(blocked > 0, 'the simulated bootstrap outage must be intercepted');
   assert.equal(await pageB.locator('#delete-all').count(), 1, 'remain on settings after failed preflight');
   const local = await pageB.evaluate(() => {
     const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.'));
