@@ -80,17 +80,24 @@ test('別端末の初回同意前でも全削除はサーバーに反映し、�
     return (await r.json()).entries['1']?.answers?.[0] === '通信障害時に残す記録';
   }, null, { timeout: 10000 });
   await pageB.goto(base + '/#/settings');
-  let blocked = 0;
-  await pageB.route('**/api/bootstrap', route => {
-    blocked++;
-    return route.fulfill({
-      status: 503, contentType: 'application/json', body: '{"error":"temporarily unavailable"}'
-    });
+  // Intercept fetch in the application itself: WebKit can bypass page.route
+  // when a service worker is involved, but the API always calls window.fetch.
+  await pageB.evaluate(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.__blockedBootstrap = 0;
+    window.fetch = function (input, init) {
+      const url = typeof input === 'string' ? input : input.url;
+      if (new URL(url, location.href).pathname === '/api/bootstrap') {
+        window.__blockedBootstrap++;
+        return Promise.reject(new TypeError('simulated network outage'));
+      }
+      return originalFetch(input, init);
+    };
   });
   await pageB.click('#delete-all');
   await pageB.click('#confirm-ok');
   await pageB.waitForFunction(() => /削除しませんでした/.test(document.getElementById('delete-msg')?.textContent || ''), null, { timeout: 10000 });
-  assert.ok(blocked > 0, 'the simulated bootstrap outage must be intercepted');
+  assert.ok(await pageB.evaluate(() => window.__blockedBootstrap) > 0, 'the simulated bootstrap outage must be intercepted');
   assert.equal(await pageB.locator('#delete-all').count(), 1, 'remain on settings after failed preflight');
   const local = await pageB.evaluate(() => {
     const key = Object.keys(localStorage).find(k => k.startsWith('michiru21.u.'));
@@ -99,5 +106,4 @@ test('別端末の初回同意前でも全削除はサーバーに反映し、�
   assert.equal(local.entries['1'].answers[0], '通信障害時に残す記録');
   const serverStillHas = await pageA.evaluate(async () => (await fetch('/api/bootstrap')).json());
   assert.equal(serverStillHas.entries['1'].answers[0], '通信障害時に残す記録');
-  await pageB.unroute('**/api/bootstrap');
 });
