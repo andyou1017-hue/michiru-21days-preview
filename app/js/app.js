@@ -28,7 +28,8 @@
     memory: 'この端末に保存できません（画面を閉じると消えます）',
     recovery: '記録を読み取れません。元データを保護しています',
     error: '保存できませんでした。画面を閉じる前に「設定」からファイルに保存してください',
-    offline: '端末には保存済み。通信が戻ったら送信します'
+    offline: '端末には保存済み。通信が戻ったら送信します',
+    conflict: '別の端末で記録が削除されています。自動送信を停止しました。設定からバックアップを保存して確認してください'
   };
 
   // ---------- 小さな道具 ----------
@@ -125,7 +126,7 @@
         // 同意前はサーバーへ個人記録を送らない。ここで初めて同期を有効化する。
         if (api) {
           api.boot().then(function (res) {
-            if (res && !store.detached && store.mergeRemote(res.entries || {}) !== false) { store.remote = api.remote(); store.pushRemote(); }
+            if (res && !store.detached && store.mergeRemote(res.entries || {}, res.generation) !== false) { store.remote = api.remote(res.generation); store.pushRemote(); }
           }).catch(function () { store.setStatus('offline'); });
         }
         go('#/');
@@ -202,6 +203,7 @@
       '<p class="muted">どの日からでも開けます。とばした日にも、あとから戻れます。</p>' +
       '<ol class="day-list">' + cards + '</ol>' +
       '</section>';
+    window.scrollTo(0, 0);
     // style属性はセキュリティ設定（CSP）で使えないため、あとから幅を設定する
     document.getElementById('bar-fill').style.width = (done.length / 21 * 100) + '%';
     if (store.isSealed() && !store.isOpened()) {
@@ -282,6 +284,7 @@
     setTitle('Day ' + pad(n) + ' ' + d.title);
     var e = store.entry(n);
     var body = '';
+    var workPanel = step >= 3 ? window.MichiruWritingPanel.html('work-time', 60) : '';
 
     if (step === 1) {
       body = '<p>今日のはじまりの気分を、0〜10で眺めてみましょう。</p>' + moodHtml('mood-am', '朝の気分', e.mood_am);
@@ -302,6 +305,7 @@
         '</div></div>';
     } else if (step === 3) {
       body = miniGuideHtml(n) + '<div class="story"><p>' + esc(d.intro) + '</p></div>' +
+        workPanel +
         '<p class="muted">書ける分だけで大丈夫です。空欄のままでも先へ進めます。</p>' +
         d.prompts.map(function (p, i) {
           return '<div class="field"><label for="ans-' + i + '">' + esc(p) + '</label>' +
@@ -310,6 +314,7 @@
         (d.compare_with_day ? compareInline(d.compare_with_day) : '');
     } else if (step === 4) {
       body = '<div class="story"><p class="label">今日の小さな実践</p><p>' + esc(d.action) + '</p></div>' +
+        workPanel +
         '<div class="field"><label for="act">自分の行動のメモ（任意）</label><textarea id="act" rows="3" maxlength="2000">' + esc(e.action_text) + '</textarea></div>' +
         '<fieldset class="choice"><legend>今日の行動は</legend>' +
         radio('act-st', 'done', 'できた', e.action_status) + radio('act-st', 'skipped', '今日は見送り', e.action_status) + radio('act-st', '', 'まだ決めていない', e.action_status || '') +
@@ -317,6 +322,7 @@
     } else {
       var completed = !!e.completed_at;
       body = letterReadHtml(n) + moodHtml('mood-pm', '夜の気分', e.mood_pm) +
+        workPanel +
         '<div class="field"><label for="refl">' + esc(d.reflection) + '<span class="muted">（発見を一言でも）</span></label>' +
         '<textarea id="refl" rows="4" maxlength="4000">' + esc(e.reflection) + '</textarea></div>' +
         discoveryFormHtml(n, '今日の発見から、残しておきたい一言（任意）') +
@@ -330,7 +336,7 @@
         '</div>';
     }
 
-    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() + window.MichiruWritingPanel.html('work-time', 60) : '') + body + '</div>' + stepNav(n, step) + '</article>';
+    view.innerHTML = '<article class="day">' + stepHeader(d, step) + '<div class="step-body">' + (step >= 3 ? lessonReadHtml() : '') + body + '</div>' + stepNav(n, step) + '</article>';
 
     if (step === 1) bindMood(n, 'mood-am', 'mood_am');
     if (step === 2) bindTimer(n);
@@ -1128,6 +1134,7 @@
       '<label class="btn" for="import-file">ファイルから記録を戻す</label><input type="file" id="import-file" accept="application/json,.json" class="sr-only"></p>' +
       '<p id="import-msg" role="status"></p>' +
       '<h2>記録の削除</h2><p><button type="button" class="btn danger" id="delete-all">すべての記録を削除</button></p>' +
+      '<p id="delete-msg" role="status"></p>' +
       '<h2>記録の扱い</h2>' + privacyHtml() +
       accountHtml() +
       '<h2>ヘルプ</h2><ul class="notice"><li>どの日からでも始められます。とばした日には、あとから戻れます。</li>' +
@@ -1200,11 +1207,11 @@
                   serverLetterState = res.letterStatus;
                   if (!store.setServerLetter(res.letterStatus)) { msg.textContent = '手紙の保存状態を確認できないため同期を停止しています。'; return; }
                 }
-                if (store.mergeRemote(res.entries || {}) === false) {
-                  msg.textContent = 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
+                if (store.mergeRemote(res.entries || {}, res.generation) === false) {
+                  msg.textContent = store.syncConflict ? '別の端末で記録が削除されています。復元した記録は端末に残し、サーバーへの送信を停止しました。設定からバックアップを保存して確認してください。' : 'サーバーと照合しましたが、端末に保存できませんでした。同期は停止しています。端末の空き容量を確認してから再読み込みしてください。';
                   return;
                 }
-                store.remote = api.remote();
+                store.remote = api.remote(res.generation);
                 store.pushRemote();
                 msg.textContent = '復元した記録とサーバーの最新記録を照合しました。';
               }).catch(function () {
@@ -1231,7 +1238,34 @@
     });
     document.getElementById('delete-all').addEventListener('click', function () {
       askConfirm('すべての記録を削除します。元に戻せません。', 'すべて削除する').then(function (ok) {
-        if (ok) store.deleteAll().then(function (done) { if (done !== false) go('#/intro'); });
+        if (!ok) return;
+        var msg = document.getElementById('delete-msg');
+        msg.textContent = '';
+        // An authenticated device may have no remote adapter yet (for example,
+        // before first consent or after a failed merge). Never report a local-only
+        // deletion as complete while server-side entries still exist.
+        var ready = api
+          ? api.boot().then(function (res) {
+              if (!res || !res.account || !account ||
+                  String(res.account.id) !== String(account.id) ||
+                  !Number.isSafeInteger(res.generation) || res.generation < 0) {
+                throw Error('最新の削除状態を確認できません。');
+              }
+              store.remote = api.remote(res.generation);
+              return true;
+            }).catch(function () {
+              store.setStatus('offline');
+              msg.textContent = 'サーバーの記録を確認できないため削除しませんでした。通信を確認してから、もう一度お試しください。';
+              return false;
+            })
+          : Promise.resolve(true);
+        ready.then(function (canDelete) {
+          if (!canDelete) return;
+          store.deleteAll().then(function (done) {
+            if (done !== false) go('#/intro');
+            else msg.textContent = '削除完了を確認できませんでした。記録とバックアップを確認してから、もう一度お試しください。';
+          });
+        });
       });
     });
     bindAccount();
@@ -1333,8 +1367,10 @@
         if (!res) return; // ログイン画面・購入案内を表示中
         account = res.account;
         var s = start(res.content, { key: 'michiru21.u.' + res.account.id, remote: null, letterStatus: res.letterStatus });
-        if (s.state.consentedAt) s.remote = api.remote();
-        if (s.remote) s.mergeRemote(res.entries);
+        if (s.state.consentedAt && s.mergeRemote(res.entries || {}, res.generation) !== false) {
+          s.remote = api.remote(res.generation);
+          s.pushRemote();
+        }
       }).catch(function () {
         view.innerHTML = '<h1>通信を確認してください</h1><p>認証を確認できませんでした。端末に保存した記録を削除せず、通信が戻ってから開き直してください。</p><p><a href="/">もう一度開く</a></p>';
       });

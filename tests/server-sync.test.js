@@ -51,7 +51,7 @@ test('未認証者は保存・削除できず、各利用者の記録を混ぜ�
   assert.deepEqual(Object.keys(await entries(b)), ['2']);
   assert.equal((await post('/api/entry/delete', { day: 2 }, a)).status, 200);
   assert.equal((await entries(b))[2].reflection, 'Bの記録');
-  assert.equal((await post('/api/entries/delete-all', {}, a)).status, 200);
+  assert.equal((await post('/api/entries/delete-all', { generation: 1 }, a)).status, 200);
   assert.deepEqual(await entries(a), {});
   assert.equal((await entries(b))[2].reflection, 'Bの記録');
 });

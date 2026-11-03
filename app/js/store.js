@@ -12,6 +12,7 @@
     return {
       app: APP_ID,
       schema: SCHEMA,
+      syncGeneration: 0, // サーバー側の削除世代。旧端末からの再アップロードを防ぐ。
       consentedAt: null,
       settings: { fontSize: 'm' },
       progress: { startedAt: null, lastOpenDay: 1 },
@@ -83,6 +84,7 @@
       throw new Error('満ちる眼21日間の記録ファイルではないか、形式が違います。');
     }
     var s = emptyState();
+    s.syncGeneration = Number.isSafeInteger(raw.syncGeneration) && raw.syncGeneration >= 0 ? raw.syncGeneration : 0;
     s.consentedAt = typeof raw.consentedAt === 'string' ? raw.consentedAt : null;
     if (raw.settings && ['s', 'm', 'l', 'xl'].indexOf(raw.settings.fontSize) >= 0) s.settings.fontSize = raw.settings.fontSize;
     if (raw.progress) {
@@ -238,6 +240,7 @@
     // Safariでは画面を閉じるときの通知が届かない場合があるため、最後の入力をタイマーに委ねない。
     if (this.recoveryRequired) this.setStatus('recovery');
     else if (!this.backend.write(this.state)) this.setStatus(this.localStatus(false));
+    else if (this.syncConflict) this.setStatus('conflict');
     clearTimeout(this.timer);
     this.timer = setTimeout(function () { self.flush(); }, 400);
   };
@@ -262,6 +265,7 @@
     if (this.detached) return false;
     if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
     var ok = this.backend.write(this.state);
+    if (this.syncConflict) { this.setStatus(ok ? 'conflict' : this.localStatus(false)); return ok; }
     var days = Object.keys(this.dirtyDays);
     if (ok) this.dirtyDays = {};
     if (this.remote && ok) {
@@ -287,14 +291,26 @@
     var p = Promise.resolve().then(function () {
       return snapshot ? self.remote.pushEntry(day, snapshot) : self.remote.deleteEntry(day);
     });
-    this.inFlight = p.then(function () {
+    this.inFlight = p.then(function (result) {
       if (self.detached) return;
+      if (result && Number.isSafeInteger(result.generation)) {
+        self.state.syncGeneration = result.generation;
+        if (!self.backend.write(self.state)) {
+          self.syncConflict = true; self.remote = null; self.pushing = false;
+          self.setStatus('error'); return;
+        }
+      }
       if (self.pendingRemote[day] === revision) delete self.pendingRemote[day];
       self.pushing = false;
       self.pushRemote();
-    }, function () {
+    }, function (error) {
       if (self.detached) return;
       self.pushing = false;
+      if (error && error.status === 409) {
+        self.syncConflict = true; self.remote = null;
+        clearTimeout(self.retryTimer);
+        self.setStatus('conflict'); return;
+      }
       self.setStatus('offline');
       clearTimeout(self.retryTimer);
       self.retryTimer = setTimeout(function () { self.pushRemote(); }, 15000);
@@ -326,7 +342,9 @@
     clearTimeout(this.timer);
     clearTimeout(this.retryTimer);
     var settings = this.state.settings;
+    var currentGeneration = this.state.syncGeneration;
     this.state = emptyState();
+    this.state.syncGeneration = currentGeneration;
     this.state.settings = settings;
     this.dirtyDays = {};
     this.pendingRemote = {};
@@ -343,7 +361,15 @@
     if (this.remote && ok) return Promise.resolve(this.inFlight).then(function () {
       clearTimeout(self.retryTimer);
       return self.remote.deleteAll();
-    }).then(function () {
+    }).then(function (result) {
+      if (result && Number.isSafeInteger(result.generation)) {
+        self.state.syncGeneration = result.generation;
+        if (!self.backend.write(self.state)) {
+          self.syncConflict = true; self.remote = null;
+          self.setStatus('error'); return false;
+        }
+      }
+      self.syncConflict = false;
       if (!self.detached) self.setStatus(self.localStatus(written));
       return true;
     }, function () {
@@ -356,6 +382,7 @@
       }
       return false;
     });
+    if (ok) this.syncConflict = false;
     this.setStatus(this.localStatus(ok));
     return Promise.resolve(ok);
   };
@@ -395,8 +422,16 @@
   Store.prototype.hasFutureLetter = function () { return !!(this.state.futureLetter && (this.state.futureLetter.text.trim() || (this.state.futureLetter.server_managed && this.state.futureLetter.sealed_at))); };
   Store.prototype.setServerLetter = function (status) {
     if (!status || !status.sealed) return false;
+    // The server has the sealed body, but local metadata must not replace an unsaved draft
+    // until the device confirms its write. Keep the draft available for recovery on failure.
+    var previousLetter = this.state.futureLetter;
     this.state.futureLetter = { text: '', written_at: status.sealedAt, updated_at: status.sealedAt, sealed_at: status.sealedAt, sealed_trusted_at: status.sealedAt, opened_at: status.openedAt || null, server_managed: true };
-    return this.flush();
+    if (!this.flush()) {
+      this.state.futureLetter = previousLetter;
+      this.backend.memory = JSON.parse(JSON.stringify(this.state));
+      return false;
+    }
+    return true;
   };
   Store.prototype.isSealed = function () { return !!(this.hasFutureLetter() && this.state.futureLetter.sealed_at); };
   Store.prototype.isOpened = function () { return !!(this.isSealed() && this.state.futureLetter.opened_at); };
@@ -509,17 +544,50 @@
   };
 
   // サーバーの記録と合わせる（日ごとに新しい方を使う）。
-  Store.prototype.mergeRemote = function (remoteEntries) {
-    if (this.recoveryRequired) { this.setStatus('recovery'); return false; }
+  Store.prototype.mergeRemote = function (remoteEntries, serverGeneration) {
+    if (this.recoveryRequired || this.detached) { this.setStatus('recovery'); return false; }
+    var currentGeneration = Number.isSafeInteger(serverGeneration) && serverGeneration >= 0 ? serverGeneration : 0;
+    if (currentGeneration !== this.state.syncGeneration) {
+      // Keep unsynchronized local entries for manual backup, but never upload them
+      // into a generation where the user has deleted records on another device.
+      if (Object.keys(this.state.entries).length || Object.keys(this.dirtyDays).length || Object.keys(this.pendingRemote).length || (this.state.futureLetter && this.state.futureLetter.server_managed)) {
+        this.syncConflict = true;
+        this.remote = null;
+        this.setStatus('conflict');
+        return false;
+      }
+      var previousGeneration = this.state.syncGeneration;
+      this.state.syncGeneration = currentGeneration;
+      if (!this.backend.write(this.state)) {
+        this.state.syncGeneration = previousGeneration;
+        this.setStatus(this.localStatus(false));
+        return false;
+      }
+    }
+    this.syncConflict = false;
+    // Reconcile in a copy. If local persistence fails, neither imported entries nor
+    // newly queued uploads may survive in memory or be sent by a later retry.
+    var previousEntries = this.state.entries;
+    var previousPending = this.pendingRemote;
+    var previousRevision = this.remoteRevision;
+    this.state.entries = Object.assign({}, previousEntries);
+    this.pendingRemote = Object.assign({}, previousPending);
     for (var d = 1; d <= 21; d++) {
       var r = remoteEntries[d] ? normalizeEntry(d, remoteEntries[d]) : null;
       var l = this.state.entries[d];
       if (r && (!l || (r.updated_at || '') > (l.updated_at || ''))) this.state.entries[d] = r;
       else if (l && (!r || (l.updated_at || '') > (r.updated_at || ''))) this.pendingRemote[d] = ++this.remoteRevision;
     }
-    if (this.backend.write(this.state)) { this.pushRemote(); return true; }
-    this.setStatus(this.localStatus(false));
-    return false;
+    if (!this.backend.write(this.state)) {
+      this.state.entries = previousEntries;
+      this.pendingRemote = previousPending;
+      this.remoteRevision = previousRevision;
+      this.backend.memory = JSON.parse(JSON.stringify(this.state));
+      this.setStatus(this.localStatus(false));
+      return false;
+    }
+    this.pushRemote();
+    return true;
   };
 
   window.MichiruStore = { Store: Store, normalizeState: normalizeState, summarize: summarize, emptyEntry: emptyEntry, SCHEMA: SCHEMA, APP_ID: APP_ID, LETTER_DAYS: LETTER_DAYS, DISCOVERY_MAX: DISCOVERY_MAX };

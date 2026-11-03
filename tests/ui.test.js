@@ -514,6 +514,8 @@ test('T23 どのステップでも中断でき、記録は残る', { skip }, asy
   await consent(page);
   for (let s = 1; s <= 5; s++) {
     await page.goto(base + '#/day/10/' + s);
+    // WebKitではload完了後に非同期レンダリングされるため、表示を待って判定する。
+    await page.locator('#pause').waitFor({ state: 'visible', timeout: 10000 });
     assert.ok(await page.isVisible('#pause'), 'ステップ' + s);
   }
   await page.goto(base + '#/day/10/3');
@@ -841,7 +843,8 @@ test('P3 手紙：封から7日間は、どの画面からも開けない。端�
   await page.waitForTimeout(300);
   assert.strictEqual(await page.locator('.letter-arrived').count(), 0);
   // 端末の日付を30日進めても（サーバー時刻は変わらない）開かない
-  await page.clock.install({ time: Date.now() + 30 * DAY });
+  // 日付だけを変更し、タイマー全体の仮想化によるWebKitクラッシュを避ける。
+  await page.clock.setFixedTime(Date.now() + 30 * DAY);
   await page.reload();
   await page.goto(base + '#/day/7/5');
   assert.match(await letterState(page), /封をしたまま/);
@@ -926,7 +929,7 @@ test('P3 手紙：通信できないとき・端末の時計を戻して封を�
     assert.strictEqual(await page.locator('#letter-open').count(), 0);
   }
   // 端末の日付を進めても同じ
-  await page.clock.install({ time: Date.now() + 30 * DAY });
+  await page.clock.setFixedTime(Date.now() + 30 * DAY);
   await page.reload();
   await page.goto(base + '#/day/7/5');
   assert.match(await letterState(page), /通信できるときに確かめます/);
@@ -945,7 +948,7 @@ test('P3 手紙：通信できないとき・端末の時計を戻して封を�
   await b.page.goto(base + '#/');
   await b.page.waitForTimeout(200);
   const maxSeen = Date.parse((await stored(b.page)).clock.maxSeen);
-  await b.page.clock.install({ time: Date.now() - 30 * DAY });
+  await b.page.clock.setFixedTime(Date.now() - 30 * DAY);
   await b.page.reload();
   await b.context.setOffline(true);
   await b.page.goto(base + '#/day/1/5');
@@ -1106,6 +1109,9 @@ test('P2・P3 バックアップ・全削除・古いバックアップとの互
   await page.click('#start');
   await page.waitForSelector('.day-list');
   await page.goto(base + '#/discoveries');
+  // Safari/WebKit may still be rendering the previous route after hash navigation.
+  // Wait for the discoveries empty state, not merely the URL change.
+  await page.waitForFunction(() => location.hash === '#/discoveries' && /まだありません/.test(document.querySelector('main')?.textContent || ''));
   assert.match(await page.textContent('main'), /まだありません/);
   await context.close();
 });
@@ -1223,8 +1229,17 @@ test('P3 未来からの手紙：書く前に33秒または感謝の瞑想で心
   // 書きかけがあれば、次に開いたときはすぐ書ける
   await page.fill('#letter-text', '書きかけ');
   await waitSaved(page);
+  // Safari/WebKit may finish hash-route rendering after navigation has resolved.
+  // Verify that the draft reached persistent storage first, then wait for the
+  // restored writing panel rather than sampling visibility immediately.
+  assert.strictEqual((await stored(page)).futureLetter.text, '書きかけ');
   await page.goto(base + '#/');
   await page.goto(base + '#/day/1/5');
+  assert.strictEqual((await stored(page)).futureLetter.text, '書きかけ');
+  await page.waitForFunction(() => {
+    const input = document.getElementById('letter-text');
+    return input && input.value === '書きかけ' && input.getClientRects().length > 0;
+  });
   assert.ok(await page.isVisible('#letter-text'));
   await context.close();
 });
